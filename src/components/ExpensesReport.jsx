@@ -191,7 +191,7 @@ function ExpensesReport({ forecast, onAddExpense }) {
           {report.items.slice(0, 10).map((item, index) => {
             const share = (item.amount / report.total) * 100
             return (
-              <div className="expense-ranking-row" key={item.name}>
+              <div className="expense-ranking-row" key={`${item.name}-${item.category}`}>
                 <span className="ranking-number">{index + 1}</span>
                 <div className="ranking-copy">
                   <div><strong>{item.name}</strong>{item.mandatory && <span className="mini-tag">Mandatory</span>}</div>
