@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { money, shortDate } from '../utils/formatters'
 
-const chartColours = ['#2e8e7e', '#e26d55', '#d69a3a', '#6f8fc4', '#9a70b8', '#5da7a8', '#c77d91', '#8da66b']
+const chartColours = ['#f36a21', '#18191b', '#9a9a9a', '#c64e10', '#5c5c5d', '#f4a177', '#353536', '#c8c5bf']
 const fallbackCategories = {
   recurringBills: 'Recurring bills',
   variableExpenses: 'Variable expenses',
@@ -19,7 +19,7 @@ function ReportMetric({ label, value, note, tone = 'default' }) {
 }
 
 function buildDonutGradient(categories, total) {
-  if (!total) return '#edf1ee'
+  if (!total) return '#d7d4ce'
 
   let cursor = 0
   return `conic-gradient(${categories.map((category, index) => {

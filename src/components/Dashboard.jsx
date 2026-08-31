@@ -22,8 +22,8 @@ function BalanceChart({ forecast, minimumBuffer }) {
       <svg className="balance-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Projected daily cash balance">
         <defs>
           <linearGradient id="cashArea" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#58c7b5" stopOpacity="0.32" />
-            <stop offset="100%" stopColor="#58c7b5" stopOpacity="0" />
+            <stop offset="0%" stopColor="#f36a21" stopOpacity="0.32" />
+            <stop offset="100%" stopColor="#f36a21" stopOpacity="0" />
           </linearGradient>
         </defs>
         {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
