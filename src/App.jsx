@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Dashboard from './components/Dashboard'
+import ExpensesReport from './components/ExpensesReport'
 import WeeklyForecast from './components/WeeklyForecast'
 import StatusBadge from './components/StatusBadge'
 import { financeData } from './data/financeData'
@@ -54,6 +55,7 @@ function Icon({ name }) {
     overview: <><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z" /></>,
     items: <><path d="M8 6h13M8 12h13M8 18h13" /><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" /></>,
     forecast: <><path d="M4 19V5M4 19h16" /><path d="m7 15 4-4 3 2 5-6" /></>,
+    report: <><path d="M12 3a9 9 0 1 0 9 9h-9V3Z" /><path d="M15 3.5A7.5 7.5 0 0 1 20.5 9H15V3.5Z" /></>,
     plus: <path d="M12 5v14M5 12h14" />,
     edit: <><path d="m14 5 5 5" /><path d="M4 20h4l11-11a2.1 2.1 0 0 0-4-4L4 16v4Z" /></>,
     trash: <><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13" /></>,
@@ -241,7 +243,10 @@ function App() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
   }, [data])
 
-  const transactions = useMemo(() => sections.flatMap((section) => data[section.key]), [data])
+  const transactions = useMemo(() => sections.flatMap((section) => data[section.key].map((item) => ({
+    ...item,
+    sourceSection: section.key,
+  }))), [data])
   const forecast = useMemo(() => generateDailyForecast({
     balance: data.balance,
     transactions,
@@ -360,6 +365,7 @@ function App() {
           <button className={view === 'overview' ? 'nav-active' : ''} onClick={() => setView('overview')}><Icon name="overview" />Overview</button>
           <button className={view === 'items' ? 'nav-active' : ''} onClick={() => setView('items')}><Icon name="items" />Cash items<span className="nav-count">{transactions.length}</span></button>
           <button className={view === 'forecast' ? 'nav-active' : ''} onClick={() => setView('forecast')}><Icon name="forecast" />Forecast</button>
+          <button className={view === 'report' ? 'nav-active' : ''} onClick={() => setView('report')}><Icon name="report" />Expenses</button>
         </nav>
         <div className={`sidebar-status sidebar-${overallStatus.toLowerCase()}`}>
           <span>Forecast status</span>
@@ -373,10 +379,10 @@ function App() {
         <header className="topbar">
           <div>
             <span className="eyebrow">Household finances</span>
-            <h1>{view === 'overview' ? 'Cash-flow overview' : view === 'items' ? 'Manage cash items' : '12-week forecast'}</h1>
-            <p>{view === 'overview' ? 'Know what is coming before it hits your balance.' : view === 'items' ? 'Keep income, bills and planned spending current.' : 'See daily cash risk rolled into weekly decisions.'}</p>
+            <h1>{view === 'overview' ? 'Cash-flow overview' : view === 'items' ? 'Manage cash items' : view === 'forecast' ? '12-week forecast' : 'Expenses report'}</h1>
+            <p>{view === 'overview' ? 'Know what is coming before it hits your balance.' : view === 'items' ? 'Keep income, bills and planned spending current.' : view === 'forecast' ? 'See daily cash risk rolled into weekly decisions.' : 'See what is consuming the most money in your forecast.'}</p>
           </div>
-          <button className="button-primary add-top-button" type="button" onClick={() => openNewItem()}><Icon name="plus" />Add item</button>
+          <button className="button-primary add-top-button" type="button" onClick={() => openNewItem(view === 'report' ? 'variableExpenses' : 'recurringIncome')}><Icon name="plus" />{view === 'report' ? 'Add expense' : 'Add item'}</button>
         </header>
 
         {view === 'overview' && <Dashboard balance={data.balance} forecast={forecast} minimumBuffer={data.settings.minimumBuffer} />}
@@ -392,6 +398,7 @@ function App() {
         )}
 
         {view === 'forecast' && <WeeklyForecast forecast={forecast} minimumBuffer={data.settings.minimumBuffer} />}
+        {view === 'report' && <ExpensesReport forecast={forecast} onAddExpense={() => openNewItem('variableExpenses')} />}
         <input ref={importInputRef} className="visually-hidden" type="file" accept="application/json,.json" onChange={importData} />
       </main>
     </div>
