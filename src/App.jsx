@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Dashboard from './components/Dashboard'
 import ExpensesReport from './components/ExpensesReport'
+import GithubSyncPanel from './components/GithubSyncPanel'
 import WeeklyForecast from './components/WeeklyForecast'
 import StatusBadge from './components/StatusBadge'
 import { financeData } from './data/financeData'
 import { generateDailyForecast } from './engine/forecastEngine'
+import { DEFAULT_GITHUB_SYNC, loadGithubData, saveGithubData } from './services/githubSync'
 import { money, shortDate } from './utils/formatters'
 
 const STORAGE_KEY = 'cash-flow-planner-v2'
+const SYNC_CONFIG_KEY = 'cash-flow-github-sync-v1'
 
 const sections = [
   { key: 'recurringIncome', label: 'Recurring income', singular: 'income source', description: 'Set-and-forget income streams' },
@@ -20,19 +23,51 @@ function cloneDefaultData() {
   return JSON.parse(JSON.stringify(financeData))
 }
 
+function normalizeData(imported) {
+  const requiredLists = sections.map((section) => section.key)
+  const isValid = imported && requiredLists.every((key) => Array.isArray(imported[key])) && imported.settings && typeof imported.settings === 'object'
+  if (!isValid) throw new Error('Invalid cash-flow data structure')
+
+  return {
+    ...cloneDefaultData(),
+    ...imported,
+    balance: Number(imported.balance) || 0,
+    settings: { ...financeData.settings, ...imported.settings },
+  }
+}
+
 function loadSavedData() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
     if (!saved) return cloneDefaultData()
-    const parsed = JSON.parse(saved)
-    return {
-      ...cloneDefaultData(),
-      ...parsed,
-      settings: { ...financeData.settings, ...parsed.settings },
-    }
+    return normalizeData(JSON.parse(saved))
   } catch {
     return cloneDefaultData()
   }
+}
+
+function loadSyncConfig() {
+  try {
+    const saved = localStorage.getItem(SYNC_CONFIG_KEY)
+    if (!saved) return null
+    const parsed = JSON.parse(saved)
+    return parsed.token ? { ...DEFAULT_GITHUB_SYNC, ...parsed } : null
+  } catch {
+    return null
+  }
+}
+
+function syncErrorMessage(error) {
+  if (error.status === 401) return 'That token is invalid or has expired.'
+  if (error.status === 403) return 'The token needs Contents read and write access to the private data repository.'
+  if (error.status === 404) return 'The private data repository was not found, or this token cannot access it.'
+  if (error.status === 409 || error.status === 422) return 'GitHub has a newer copy. Pull the latest data or use Save now to overwrite it.'
+  if (error instanceof SyntaxError) return 'The GitHub data file is not valid Cashflow data.'
+  return error.message || 'GitHub sync could not be completed.'
+}
+
+function syncTime() {
+  return new Intl.DateTimeFormat('en-PH', { hour: 'numeric', minute: '2-digit' }).format(new Date())
 }
 
 function emptyForm(section = 'recurringIncome', startDate = '') {
@@ -237,11 +272,91 @@ function App() {
   const [view, setView] = useState('overview')
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(() => emptyForm('recurringIncome', data.settings.forecastStartDate))
+  const [syncConfig, setSyncConfig] = useState(loadSyncConfig)
+  const [syncStatus, setSyncStatus] = useState(syncConfig ? 'connecting' : 'disconnected')
+  const [syncMessage, setSyncMessage] = useState('')
+  const [lastSyncedAt, setLastSyncedAt] = useState('')
   const importInputRef = useRef(null)
+  const dataRef = useRef(data)
+  const syncShaRef = useRef(null)
+  const syncReadyRef = useRef(false)
+  const lastSyncedJsonRef = useRef('')
+  const syncTimerRef = useRef(null)
+  const syncQueueRef = useRef(Promise.resolve())
 
   useEffect(() => {
+    dataRef.current = data
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
   }, [data])
+
+  useEffect(() => {
+    if (!syncConfig?.token || syncReadyRef.current) return undefined
+
+    let cancelled = false
+    const initialiseSync = async () => {
+      setSyncStatus('connecting')
+      setSyncMessage('Checking GitHub for your latest data…')
+      try {
+        const remote = await loadGithubData(syncConfig)
+        if (cancelled) return
+
+        if (remote) {
+          const remoteData = normalizeData(remote.data)
+          syncShaRef.current = remote.sha
+          lastSyncedJsonRef.current = JSON.stringify(remoteData)
+          syncReadyRef.current = true
+          setData(remoteData)
+        } else {
+          const saved = await saveGithubData(syncConfig, dataRef.current)
+          if (cancelled) return
+          syncShaRef.current = saved.sha
+          lastSyncedJsonRef.current = JSON.stringify(dataRef.current)
+          syncReadyRef.current = true
+        }
+        setSyncStatus('synced')
+        setSyncMessage('GitHub data is up to date.')
+        setLastSyncedAt(syncTime())
+      } catch (error) {
+        if (cancelled) return
+        setSyncStatus(error.status === 409 || error.status === 422 ? 'conflict' : 'error')
+        setSyncMessage(syncErrorMessage(error))
+      }
+    }
+
+    initialiseSync()
+    return () => { cancelled = true }
+  }, [syncConfig])
+
+  useEffect(() => {
+    if (!syncConfig?.token || !syncReadyRef.current) return undefined
+
+    const serialized = JSON.stringify(data)
+    if (serialized === lastSyncedJsonRef.current) return undefined
+
+    setSyncStatus('pending')
+    setSyncMessage('Waiting for changes to finish…')
+    window.clearTimeout(syncTimerRef.current)
+    syncTimerRef.current = window.setTimeout(() => {
+      const snapshot = data
+      syncQueueRef.current = syncQueueRef.current.catch(() => {}).then(async () => {
+        setSyncStatus('syncing')
+        setSyncMessage('Saving changes to GitHub…')
+        try {
+          const saved = await saveGithubData(syncConfig, snapshot, syncShaRef.current)
+          syncShaRef.current = saved.sha
+          lastSyncedJsonRef.current = JSON.stringify(snapshot)
+          setSyncStatus('synced')
+          setSyncMessage('GitHub data is up to date.')
+          setLastSyncedAt(syncTime())
+        } catch (error) {
+          setSyncStatus(error.status === 409 || error.status === 422 ? 'conflict' : 'error')
+          setSyncMessage(syncErrorMessage(error))
+        }
+      })
+    }, 900)
+
+    return () => window.clearTimeout(syncTimerRef.current)
+  }, [data, syncConfig])
 
   const transactions = useMemo(() => sections.flatMap((section) => data[section.key].map((item) => ({
     ...item,
@@ -311,7 +426,10 @@ function App() {
   }
 
   const resetData = () => {
-    if (!window.confirm('Clear all locally saved cash-flow data and start fresh?')) return
+    const warning = syncConfig
+      ? 'Clear all cash-flow data on this device and in GitHub, then start fresh?'
+      : 'Clear all locally saved cash-flow data and start fresh?'
+    if (!window.confirm(warning)) return
     const freshData = cloneDefaultData()
     setData(freshData)
     setEditing(null)
@@ -334,17 +452,7 @@ function App() {
     if (!file) return
 
     try {
-      const imported = JSON.parse(await file.text())
-      const requiredLists = sections.map((section) => section.key)
-      const isValid = requiredLists.every((key) => Array.isArray(imported[key])) && imported.settings && typeof imported.settings === 'object'
-      if (!isValid) throw new Error('Invalid backup structure')
-
-      const normalized = {
-        ...cloneDefaultData(),
-        ...imported,
-        balance: Number(imported.balance) || 0,
-        settings: { ...financeData.settings, ...imported.settings },
-      }
+      const normalized = normalizeData(JSON.parse(await file.text()))
       setData(normalized)
       setForm(emptyForm('recurringIncome', normalized.settings.forecastStartDate))
       setEditing(null)
@@ -352,6 +460,100 @@ function App() {
     } catch {
       window.alert('That file is not a valid Cashflow backup.')
     }
+  }
+
+  const connectGithub = async (token, mode) => {
+    const config = { ...DEFAULT_GITHUB_SYNC, token }
+    setSyncStatus('connecting')
+    setSyncMessage(mode === 'download' ? 'Downloading GitHub data…' : 'Uploading this device to GitHub…')
+
+    try {
+      const remote = await loadGithubData(config)
+      if (mode === 'download') {
+        if (!remote) {
+          const error = new Error('No cash-flow data has been uploaded to GitHub yet. Use Upload this device first.')
+          throw error
+        }
+        const remoteData = normalizeData(remote.data)
+        syncShaRef.current = remote.sha
+        lastSyncedJsonRef.current = JSON.stringify(remoteData)
+        syncReadyRef.current = true
+        setData(remoteData)
+      } else {
+        if (remote && !window.confirm('GitHub already contains cash-flow data. Replace it with the data on this device?')) {
+          setSyncStatus('disconnected')
+          setSyncMessage('Upload cancelled. Your GitHub data was not changed.')
+          return
+        }
+        const saved = await saveGithubData(config, dataRef.current, remote?.sha)
+        syncShaRef.current = saved.sha
+        lastSyncedJsonRef.current = JSON.stringify(dataRef.current)
+        syncReadyRef.current = true
+      }
+
+      localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(config))
+      setSyncConfig(config)
+      setSyncStatus('synced')
+      setSyncMessage('Connected. Future changes will save automatically.')
+      setLastSyncedAt(syncTime())
+    } catch (error) {
+      syncReadyRef.current = false
+      setSyncStatus(error.status === 409 || error.status === 422 ? 'conflict' : 'error')
+      setSyncMessage(syncErrorMessage(error))
+    }
+  }
+
+  const pullGithubData = async () => {
+    if (!syncConfig || !window.confirm('Replace this device with the latest data from GitHub?')) return
+    setSyncStatus('connecting')
+    setSyncMessage('Downloading GitHub data…')
+    try {
+      const remote = await loadGithubData(syncConfig)
+      if (!remote) throw new Error('No GitHub data file has been uploaded yet.')
+      const remoteData = normalizeData(remote.data)
+      syncShaRef.current = remote.sha
+      lastSyncedJsonRef.current = JSON.stringify(remoteData)
+      syncReadyRef.current = true
+      setData(remoteData)
+      setSyncStatus('synced')
+      setSyncMessage('Latest GitHub data downloaded.')
+      setLastSyncedAt(syncTime())
+    } catch (error) {
+      setSyncStatus('error')
+      setSyncMessage(syncErrorMessage(error))
+    }
+  }
+
+  const pushGithubData = async () => {
+    if (!syncConfig || !window.confirm('Save this device over the current GitHub copy?')) return
+    setSyncStatus('syncing')
+    setSyncMessage('Saving this device to GitHub…')
+    try {
+      const remote = await loadGithubData(syncConfig)
+      const saved = await saveGithubData(syncConfig, dataRef.current, remote?.sha)
+      syncShaRef.current = saved.sha
+      lastSyncedJsonRef.current = JSON.stringify(dataRef.current)
+      syncReadyRef.current = true
+      setSyncStatus('synced')
+      setSyncMessage('GitHub data is up to date.')
+      setLastSyncedAt(syncTime())
+    } catch (error) {
+      setSyncStatus(error.status === 409 || error.status === 422 ? 'conflict' : 'error')
+      setSyncMessage(syncErrorMessage(error))
+    }
+  }
+
+  const disconnectGithub = () => {
+    if (!window.confirm('Disconnect GitHub sync on this device? Your data will remain in GitHub.')) return
+    window.clearTimeout(syncTimerRef.current)
+    localStorage.removeItem(SYNC_CONFIG_KEY)
+    syncReadyRef.current = false
+    syncShaRef.current = null
+    lastSyncedJsonRef.current = ''
+    setSyncConfig(null)
+    setSyncStatus('disconnected')
+    setSyncMessage('')
+    setLastSyncedAt('')
   }
 
   return (
@@ -390,6 +592,7 @@ function App() {
         {view === 'items' && (
           <div className="items-stack">
             <SettingsPanel data={data} setData={setData} onExport={exportData} onImport={() => importInputRef.current?.click()} />
+            <GithubSyncPanel config={syncConfig} status={syncStatus} message={syncMessage} lastSyncedAt={lastSyncedAt} onConnect={connectGithub} onPull={pullGithubData} onPush={pushGithubData} onDisconnect={disconnectGithub} />
             <ItemForm form={form} setForm={setForm} editing={editing} onSubmit={submitItem} onCancel={() => { setEditing(null); setForm(emptyForm(form.section, data.settings.forecastStartDate)) }} />
             <div className="item-groups-grid">
               {sections.map((section) => <ItemGroup key={section.key} section={section} items={data[section.key]} onEdit={editItem} onDelete={deleteItem} onToggle={toggleItem} />)}
