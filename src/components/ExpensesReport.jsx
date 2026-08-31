@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { occursOnDate } from '../engine/forecastEngine'
 import { money, shortDate } from '../utils/formatters'
 
 const chartColours = ['#f36a21', '#18191b', '#9a9a9a', '#c64e10', '#5c5c5d', '#f4a177', '#353536', '#c8c5bf']
@@ -29,7 +30,117 @@ function buildDonutGradient(categories, total) {
   }).join(', ')})`
 }
 
-function ExpensesReport({ forecast, onAddExpense }) {
+function categoryNameFor(expense) {
+  return expense.category?.trim() || fallbackCategories[expense.sourceSection] || 'Uncategorised'
+}
+
+function monthLabel(monthKey) {
+  const [year, month] = monthKey.split('-').map(Number)
+  return new Intl.DateTimeFormat('en-PH', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1))
+}
+
+function CategoryBudgetPanel({ forecast, transactions, categoryBudgets, onSetCategoryBudget }) {
+  const months = useMemo(() => [...new Set(forecast.map((day) => day.date.slice(0, 7)))], [forecast])
+  const [selectedMonth, setSelectedMonth] = useState(months[0] || '')
+  const [editing, setEditing] = useState(false)
+  const activeMonth = months.includes(selectedMonth) ? selectedMonth : months[0]
+
+  const categories = useMemo(() => {
+    const names = new Set(Object.keys(categoryBudgets))
+    transactions
+      .filter((item) => item.type === 'expense')
+      .forEach((item) => names.add(categoryNameFor(item)))
+    return [...names].sort((a, b) => a.localeCompare(b))
+  }, [categoryBudgets, transactions])
+
+  const monthlySpending = useMemo(() => {
+    if (!activeMonth) return {}
+    const [year, month] = activeMonth.split('-').map(Number)
+    const daysInMonth = new Date(year, month, 0).getDate()
+    const totals = {}
+
+    transactions.filter((item) => item.type === 'expense').forEach((item) => {
+      const category = categoryNameFor(item)
+      for (let day = 1; day <= daysInMonth; day += 1) {
+        const date = new Date(year, month - 1, day)
+        if (occursOnDate({ ...item, status: 'Unpaid' }, date)) {
+          totals[category] = (totals[category] || 0) + (Number(item.amount) || 0)
+        }
+      }
+    })
+
+    return totals
+  }, [activeMonth, transactions])
+
+  const budgetedCategories = categories.filter((category) => Number(categoryBudgets[category]) > 0)
+
+  return (
+    <section className="panel category-budget-panel">
+      <div className="panel-heading budget-heading">
+        <div>
+          <span className="eyebrow">Monthly guardrails</span>
+          <h2>Category budget limits</h2>
+          <p>Paid and scheduled expenses dated in the selected month are included.</p>
+        </div>
+        <div className="budget-actions">
+          <label>
+            <span className="visually-hidden">Budget month</span>
+            <select value={activeMonth} onChange={(event) => setSelectedMonth(event.target.value)}>
+              {months.map((month) => <option key={month} value={month}>{monthLabel(month)}</option>)}
+            </select>
+          </label>
+          <button className="button-secondary button-small" type="button" onClick={() => setEditing((current) => !current)}>{editing ? 'Done' : 'Set limits'}</button>
+        </div>
+      </div>
+
+      {editing && (
+        <div className="budget-limit-editor">
+          {categories.map((category) => (
+            <label key={category}>
+              <span>{category}</span>
+              <div className="currency-input"><b>₱</b><input type="number" min="0" step="100" value={categoryBudgets[category] || ''} placeholder="No limit" onChange={(event) => onSetCategoryBudget(category, Number(event.target.value) || 0)} /></div>
+            </label>
+          ))}
+          {!categories.length && <p className="empty-copy">Add an expense category first, then return here to set its monthly limit.</p>}
+        </div>
+      )}
+
+      {budgetedCategories.length ? (
+        <div className="budget-progress-list">
+          {budgetedCategories.map((category) => {
+            const limit = Number(categoryBudgets[category]) || 0
+            const spent = monthlySpending[category] || 0
+            const remaining = limit - spent
+            const percentage = limit ? (spent / limit) * 100 : 0
+            const overBudget = remaining < 0
+            return (
+              <div className={`budget-progress-row ${overBudget ? 'budget-over' : ''}`} key={category}>
+                <div className="budget-progress-heading">
+                  <strong>{category}</strong>
+                  <span><b>{money(spent)}</b> of {money(limit)}</span>
+                </div>
+                <div className="budget-progress-track" role="progressbar" aria-label={`${category}: ${money(spent)} of ${money(limit)}`} aria-valuemin="0" aria-valuemax={limit} aria-valuenow={spent}>
+                  <i style={{ width: `${Math.min(percentage, 100)}%` }} />
+                </div>
+                <div className="budget-progress-meta">
+                  <span>{overBudget ? `${money(Math.abs(remaining))} over budget` : `${money(remaining)} remaining`}</span>
+                  <strong>{Math.round(percentage)}%</strong>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : !editing && (
+        <div className="budget-empty">
+          <span>Set a monthly limit for any expense category to see its progress here.</span>
+          <button className="button-primary button-small" type="button" onClick={() => setEditing(true)}>Set category limits</button>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function ExpensesReport({ forecast, transactions, categoryBudgets = {}, onSetCategoryBudget, onAddExpense }) {
   const [range, setRange] = useState('28')
   const rangeDays = range === 'all' ? forecast.length : Math.min(Number(range), forecast.length)
   const reportDays = forecast.slice(0, rangeDays)
@@ -48,7 +159,7 @@ function ExpensesReport({ forecast, onAddExpense }) {
     const itemsByName = new Map()
 
     expenses.forEach((expense) => {
-      const categoryName = expense.category?.trim() || fallbackCategories[expense.sourceSection] || 'Uncategorised'
+      const categoryName = categoryNameFor(expense)
       const category = categoriesByName.get(categoryName) || { name: categoryName, amount: 0, occurrences: 0 }
       category.amount += expense.amount
       category.occurrences += 1
@@ -93,6 +204,7 @@ function ExpensesReport({ forecast, onAddExpense }) {
   if (!report.total) {
     return (
       <div className="report-stack">
+        <CategoryBudgetPanel forecast={forecast} transactions={transactions} categoryBudgets={categoryBudgets} onSetCategoryBudget={onSetCategoryBudget} />
         <section className="panel report-empty">
           <div className="report-empty-icon" aria-hidden="true">↗</div>
           <span className="eyebrow">Spending analysis</span>
@@ -127,6 +239,8 @@ function ExpensesReport({ forecast, onAddExpense }) {
         <ReportMetric label="Largest expense" value={report.topItem.name} note={`${money(report.topItem.amount)} across ${report.topItem.occurrences} occurrence${report.topItem.occurrences === 1 ? '' : 's'}`} />
         <ReportMetric label="Biggest spending day" value={money(report.largestDay.amount)} note={shortDate(report.largestDay.date)} tone="negative" />
       </section>
+
+      <CategoryBudgetPanel forecast={forecast} transactions={transactions} categoryBudgets={categoryBudgets} onSetCategoryBudget={onSetCategoryBudget} />
 
       <section className="report-grid">
         <article className="panel category-report-panel">

@@ -608,7 +608,12 @@ function App() {
         )}
 
         {view === 'forecast' && <WeeklyForecast forecast={forecast} dailyForecast={daily90Forecast} minimumBuffer={data.settings.minimumBuffer} />}
-        {view === 'report' && <ExpensesReport forecast={forecast} onAddExpense={() => openNewItem('variableExpenses')} />}
+        {view === 'report' && <ExpensesReport forecast={forecast} transactions={transactions} categoryBudgets={data.categoryBudgets || {}} onSetCategoryBudget={(category, limit) => setData((current) => {
+          const categoryBudgets = { ...(current.categoryBudgets || {}) }
+          if (limit > 0) categoryBudgets[category] = limit
+          else delete categoryBudgets[category]
+          return { ...current, categoryBudgets }
+        })} onAddExpense={() => openNewItem('variableExpenses')} />}
         <input ref={importInputRef} className="visually-hidden" type="file" accept="application/json,.json" onChange={importData} />
       </main>
     </div>

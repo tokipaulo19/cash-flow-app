@@ -298,6 +298,29 @@ input:focus, select:focus { border-color: #f36a21; background: #fffdfa; box-shad
 .report-metrics .metric-value { font-size: clamp(19px, 2vw, 26px); }
 .report-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, .75fr); gap: 20px; }
 
+.budget-heading { align-items: center; }
+.budget-actions { display: flex; align-items: center; gap: 8px; }
+.budget-actions label { width: 190px; }
+.budget-actions select { height: 36px; font-size: 11px; font-weight: 700; }
+.budget-limit-editor { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 21px; padding: 17px; border: 1px solid #c8c5bf; border-radius: 12px; background: #e7e4de; }
+.budget-limit-editor label { display: grid; gap: 7px; }
+.budget-limit-editor label > span { overflow: hidden; color: #5f5f60; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.budget-limit-editor input { height: 39px; }
+.budget-progress-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 28px; }
+.budget-progress-row { min-width: 0; padding: 14px 15px; border: 1px solid #d0cdc7; border-radius: 11px; background: #ece9e3; }
+.budget-progress-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 15px; }
+.budget-progress-heading strong { overflow: hidden; color: #18191b; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.budget-progress-heading span { color: #686869; font-size: 10px; white-space: nowrap; }
+.budget-progress-heading span b { color: #18191b; }
+.budget-progress-track { height: 10px; overflow: hidden; margin-top: 12px; border-radius: 99px; background: #cfccc6; }
+.budget-progress-track i { display: block; height: 100%; min-width: 3px; border-radius: inherit; background: #f36a21; transition: width .3s ease; }
+.budget-over .budget-progress-track { box-shadow: inset 0 0 0 1px #18191b; }
+.budget-over .budget-progress-track i { background: repeating-linear-gradient(135deg, #f36a21 0 7px, #18191b 7px 12px); }
+.budget-progress-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; color: #686869; font-size: 10px; }
+.budget-progress-meta strong { color: #18191b; }
+.budget-over .budget-progress-meta span, .budget-over .budget-progress-meta strong { color: #bd4709; font-weight: 800; }
+.budget-empty { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 17px 19px; border: 1px dashed #9a9a9a; border-radius: 11px; color: #686869; background: #e8e5df; font-size: 12px; }
+
 .category-report-body { display: grid; grid-template-columns: 210px minmax(0, 1fr); align-items: center; gap: 34px; padding: 4px 6px 8px; }
 .donut-chart { display: grid; width: 190px; aspect-ratio: 1; place-items: center; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(11,11,12,.06); }
 .donut-chart > div { display: grid; width: 114px; aspect-ratio: 1; place-content: center; border-radius: 50%; background: #f4f1ec; box-shadow: 0 3px 15px rgba(11,11,12,.09); text-align: center; }
@@ -348,6 +371,7 @@ input:focus, select:focus { border-color: #f36a21; background: #fffdfa; box-shad
   .dashboard-grid { grid-template-columns: 1fr; }
   .settings-grid { grid-template-columns: repeat(2, 1fr); }
   .report-grid { grid-template-columns: 1fr; }
+  .budget-limit-editor { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .item-row { grid-template-columns: 35px minmax(0, 1fr) auto; }
   .item-actions { grid-column: 2 / -1; justify-content: flex-end; }
 }
@@ -396,6 +420,8 @@ input:focus, select:focus { border-color: #f36a21; background: #fffdfa; box-shad
   .category-report-body { grid-template-columns: 170px minmax(0, 1fr); gap: 18px; padding-inline: 0; }
   .donut-chart { width: 160px; }
   .donut-chart > div { width: 96px; }
+  .budget-heading { display: block; }
+  .budget-actions { margin-top: 14px; }
 }
 
 @media (max-width: 420px) {
@@ -414,6 +440,10 @@ input:focus, select:focus { border-color: #f36a21; background: #fffdfa; box-shad
   .category-legend { width: 100%; }
   .expense-ranking-row { grid-template-columns: 30px minmax(0, 1fr); }
   .ranking-value { grid-column: 2; display: flex; justify-content: space-between; min-width: 0; text-align: left; }
+  .budget-actions { align-items: stretch; flex-direction: column; }
+  .budget-actions label { width: 100%; }
+  .budget-limit-editor, .budget-progress-list { grid-template-columns: 1fr; }
+  .budget-empty { align-items: flex-start; flex-direction: column; }
   .sync-explainer, .sync-choice-grid { grid-template-columns: 1fr; }
   .sync-connected { grid-template-columns: 1fr; }
   .sync-actions { justify-content: flex-start; }

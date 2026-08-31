@@ -12,6 +12,7 @@ export const financeData = {
   recurringBills: [],
   variableExpenses: [],
   oneOffBills: [],
+  categoryBudgets: {},
   settings: {
     forecastStartDate: todayKey(),
     minimumBuffer: 40000,
