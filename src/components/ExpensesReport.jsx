@@ -34,6 +34,10 @@ function categoryNameFor(expense) {
   return expense.category?.trim() || fallbackCategories[expense.sourceSection] || 'Uncategorised'
 }
 
+function subcategoryNameFor(expense) {
+  return expense.subcategory?.trim() || 'Other'
+}
+
 function monthLabel(monthKey) {
   const [year, month] = monthKey.split('-').map(Number)
   return new Intl.DateTimeFormat('en-PH', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1))
@@ -61,10 +65,15 @@ function CategoryBudgetPanel({ forecast, transactions, categoryBudgets, onSetCat
 
     transactions.filter((item) => item.type === 'expense').forEach((item) => {
       const category = categoryNameFor(item)
+      const subcategory = subcategoryNameFor(item)
       for (let day = 1; day <= daysInMonth; day += 1) {
         const date = new Date(year, month - 1, day)
         if (occursOnDate({ ...item, status: 'Unpaid' }, date)) {
-          totals[category] = (totals[category] || 0) + (Number(item.amount) || 0)
+          const amount = Number(item.amount) || 0
+          const categoryTotal = totals[category] || { total: 0, subcategories: {} }
+          categoryTotal.total += amount
+          categoryTotal.subcategories[subcategory] = (categoryTotal.subcategories[subcategory] || 0) + amount
+          totals[category] = categoryTotal
         }
       }
     })
@@ -109,10 +118,14 @@ function CategoryBudgetPanel({ forecast, transactions, categoryBudgets, onSetCat
         <div className="budget-progress-list">
           {budgetedCategories.map((category) => {
             const limit = Number(categoryBudgets[category]) || 0
-            const spent = monthlySpending[category] || 0
+            const spending = monthlySpending[category] || { total: 0, subcategories: {} }
+            const spent = spending.total
             const remaining = limit - spent
             const percentage = limit ? (spent / limit) * 100 : 0
             const overBudget = remaining < 0
+            const subcategories = Object.entries(spending.subcategories)
+              .map(([name, amount]) => ({ name, amount }))
+              .sort((a, b) => b.amount - a.amount)
             return (
               <div className={`budget-progress-row ${overBudget ? 'budget-over' : ''}`} key={category}>
                 <div className="budget-progress-heading">
@@ -126,6 +139,26 @@ function CategoryBudgetPanel({ forecast, transactions, categoryBudgets, onSetCat
                   <span>{overBudget ? `${money(Math.abs(remaining))} over budget` : `${money(remaining)} remaining`}</span>
                   <strong>{Math.round(percentage)}%</strong>
                 </div>
+                {subcategories.length > 0 && (
+                  <div className="budget-subcategories">
+                    <span className="budget-subcategory-label">Subcategories</span>
+                    {subcategories.map((subcategory) => {
+                      const limitShare = limit ? (subcategory.amount / limit) * 100 : 0
+                      return (
+                        <div className="budget-subcategory-row" key={subcategory.name}>
+                          <div>
+                            <span>{subcategory.name}</span>
+                            <strong>{money(subcategory.amount)}</strong>
+                          </div>
+                          <div className="budget-subcategory-track" aria-hidden="true">
+                            <i style={{ width: `${Math.min(limitShare, 100)}%` }} />
+                          </div>
+                          <small>{Math.round(limitShare)}% of limit</small>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -160,15 +193,21 @@ function ExpensesReport({ forecast, transactions, categoryBudgets = {}, onSetCat
 
     expenses.forEach((expense) => {
       const categoryName = categoryNameFor(expense)
-      const category = categoriesByName.get(categoryName) || { name: categoryName, amount: 0, occurrences: 0 }
+      const subcategoryName = subcategoryNameFor(expense)
+      const category = categoriesByName.get(categoryName) || { name: categoryName, amount: 0, occurrences: 0, subcategories: new Map() }
       category.amount += expense.amount
       category.occurrences += 1
+      const subcategory = category.subcategories.get(subcategoryName) || { name: subcategoryName, amount: 0, occurrences: 0 }
+      subcategory.amount += expense.amount
+      subcategory.occurrences += 1
+      category.subcategories.set(subcategoryName, subcategory)
       categoriesByName.set(categoryName, category)
 
-      const itemKey = `${expense.name.trim().toLowerCase()}|${categoryName.toLowerCase()}`
+      const itemKey = `${expense.name.trim().toLowerCase()}|${categoryName.toLowerCase()}|${subcategoryName.toLowerCase()}`
       const item = itemsByName.get(itemKey) || {
         name: expense.name,
         category: categoryName,
+        subcategory: subcategoryName,
         amount: 0,
         occurrences: 0,
         mandatory: Boolean(expense.mandatory),
@@ -178,7 +217,12 @@ function ExpensesReport({ forecast, transactions, categoryBudgets = {}, onSetCat
       itemsByName.set(itemKey, item)
     })
 
-    const categories = [...categoriesByName.values()].sort((a, b) => b.amount - a.amount)
+    const categories = [...categoriesByName.values()]
+      .map((category) => ({
+        ...category,
+        subcategories: [...category.subcategories.values()].sort((a, b) => b.amount - a.amount),
+      }))
+      .sort((a, b) => b.amount - a.amount)
     const items = [...itemsByName.values()].sort((a, b) => b.amount - a.amount)
     const spendingDays = reportDays
       .map((day) => ({ date: day.date, amount: day.expenses }))
@@ -200,6 +244,7 @@ function ExpensesReport({ forecast, transactions, categoryBudgets = {}, onSetCat
   const flexible = report.total - report.mandatory
   const topCategoryShare = report.total ? Math.round((report.topCategory?.amount / report.total) * 100) : 0
   const donutGradient = buildDonutGradient(report.categories, report.total)
+  const subcategoryCount = report.categories.reduce((sum, category) => sum + category.subcategories.length, 0)
 
   if (!report.total) {
     return (
@@ -249,7 +294,7 @@ function ExpensesReport({ forecast, transactions, categoryBudgets = {}, onSetCat
               <span className="eyebrow">Where it goes</span>
               <h2>Spending by category</h2>
             </div>
-            <span className="panel-meta">{report.categories.length} categories</span>
+            <span className="panel-meta">{report.categories.length} categories · {subcategoryCount} subcategories</span>
           </div>
           <div className="category-report-body">
             <div className="donut-chart" style={{ background: donutGradient }} role="img" aria-label={`Spending by category. ${report.topCategory.name} is the largest at ${topCategoryShare} percent.`}>
@@ -262,11 +307,28 @@ function ExpensesReport({ forecast, transactions, categoryBudgets = {}, onSetCat
               {report.categories.map((category, index) => {
                 const share = Math.round((category.amount / report.total) * 100)
                 return (
-                  <div className="category-legend-row" key={category.name}>
-                    <i style={{ background: chartColours[index % chartColours.length] }} />
-                    <span>{category.name}</span>
-                    <strong>{money(category.amount)}</strong>
-                    <small>{share}%</small>
+                  <div className="category-legend-group" key={category.name}>
+                    <div className="category-legend-row">
+                      <i style={{ background: chartColours[index % chartColours.length] }} />
+                      <span>{category.name}</span>
+                      <strong>{money(category.amount)}</strong>
+                      <small>{share}%</small>
+                    </div>
+                    <div className="subcategory-legend">
+                      {category.subcategories.map((subcategory) => {
+                        const categoryShare = category.amount ? (subcategory.amount / category.amount) * 100 : 0
+                        return (
+                          <div className="subcategory-legend-row" key={subcategory.name}>
+                            <div>
+                              <span>{subcategory.name}</span>
+                              <small>{Math.round(categoryShare)}% of {category.name}</small>
+                            </div>
+                            <strong>{money(subcategory.amount)}</strong>
+                            <div className="subcategory-legend-track" aria-hidden="true"><i style={{ width: `${categoryShare}%` }} /></div>
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
                 )
               })}
@@ -305,11 +367,11 @@ function ExpensesReport({ forecast, transactions, categoryBudgets = {}, onSetCat
           {report.items.slice(0, 10).map((item, index) => {
             const share = (item.amount / report.total) * 100
             return (
-              <div className="expense-ranking-row" key={`${item.name}-${item.category}`}>
+              <div className="expense-ranking-row" key={`${item.name}-${item.category}-${item.subcategory}`}>
                 <span className="ranking-number">{index + 1}</span>
                 <div className="ranking-copy">
                   <div><strong>{item.name}</strong>{item.mandatory && <span className="mini-tag">Mandatory</span>}</div>
-                  <span>{item.category} · {item.occurrences} occurrence{item.occurrences === 1 ? '' : 's'}</span>
+                  <span>{item.category} › {item.subcategory} · {item.occurrences} occurrence{item.occurrences === 1 ? '' : 's'}</span>
                   <div className="ranking-bar"><i style={{ width: `${share}%` }} /></div>
                 </div>
                 <div className="ranking-value"><strong>{money(item.amount)}</strong><span>{Math.round(share)}%</span></div>

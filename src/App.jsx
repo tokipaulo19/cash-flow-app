@@ -76,6 +76,7 @@ function emptyForm(section = 'recurringIncome', startDate = '') {
     name: '',
     amount: '',
     category: '',
+    subcategory: '',
     startDate,
     frequency: section === 'recurringIncome' ? 'Weekly' : section === 'recurringBills' ? 'Monthly' : 'One-Off',
     active: true,
@@ -207,6 +208,12 @@ function ItemForm({ form, setForm, editing, onSubmit, onCancel }) {
           <span>Category <em>optional</em></span>
           <input value={form.category} placeholder="e.g. Housing" onChange={(event) => update('category', event.target.value)} />
         </label>
+        {form.section !== 'recurringIncome' && (
+          <label>
+            <span>Subcategory <em>optional</em></span>
+            <input value={form.subcategory} placeholder="e.g. Rent, Electricity" onChange={(event) => update('subcategory', event.target.value)} />
+          </label>
+        )}
         <label className="field-wide">
           <span>Notes <em>optional</em></span>
           <input value={form.notes} placeholder="Add context for future you" onChange={(event) => update('notes', event.target.value)} />
@@ -248,7 +255,7 @@ function ItemGroup({ section, items, onEdit, onDelete, onToggle }) {
                     {item.mandatory && <span className="mini-tag">Mandatory</span>}
                     {paused && <span className="mini-tag tag-muted">{item.status === 'Paid' ? 'Paid' : 'Paused'}</span>}
                   </div>
-                  <span>{item.frequency} · {shortDate(item.startDate)}{item.category ? ` · ${item.category}` : ''}</span>
+                  <span>{item.frequency} · {shortDate(item.startDate)}{item.category ? ` · ${item.category}` : ''}{item.subcategory ? ` › ${item.subcategory}` : ''}</span>
                 </div>
                 <strong className={item.type === 'income' ? 'positive-number' : ''}>{item.type === 'income' ? '+' : '−'}{money(item.amount)}</strong>
                 <div className="item-actions">
