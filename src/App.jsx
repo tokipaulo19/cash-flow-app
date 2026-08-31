@@ -369,6 +369,13 @@ function App() {
     days: data.settings.forecastDays,
     minimumBuffer: data.settings.minimumBuffer,
   }), [data.balance, data.settings, transactions])
+  const daily90Forecast = useMemo(() => generateDailyForecast({
+    balance: data.balance,
+    transactions,
+    startDate: data.settings.forecastStartDate,
+    days: 90,
+    minimumBuffer: data.settings.minimumBuffer,
+  }), [data.balance, data.settings.forecastStartDate, data.settings.minimumBuffer, transactions])
 
   const overallStatus = forecast.some((day) => day.balance < 0)
     ? 'SHORTFALL'
@@ -581,8 +588,8 @@ function App() {
         <header className="topbar">
           <div>
             <span className="eyebrow">Household finances</span>
-            <h1>{view === 'overview' ? 'Cash-flow overview' : view === 'items' ? 'Manage cash items' : view === 'forecast' ? '12-week forecast' : 'Expenses report'}</h1>
-            <p>{view === 'overview' ? 'Know what is coming before it hits your balance.' : view === 'items' ? 'Keep income, bills and planned spending current.' : view === 'forecast' ? 'See daily cash risk rolled into weekly decisions.' : 'See what is consuming the most money in your forecast.'}</p>
+            <h1>{view === 'overview' ? 'Cash-flow overview' : view === 'items' ? 'Manage cash items' : view === 'forecast' ? 'Cash-flow forecast' : 'Expenses report'}</h1>
+            <p>{view === 'overview' ? 'Know what is coming before it hits your balance.' : view === 'items' ? 'Keep income, bills and planned spending current.' : view === 'forecast' ? 'Switch between weekly summaries and 90-day daily detail.' : 'See what is consuming the most money in your forecast.'}</p>
           </div>
           <button className="button-primary add-top-button" type="button" onClick={() => openNewItem(view === 'report' ? 'variableExpenses' : 'recurringIncome')}><Icon name="plus" />{view === 'report' ? 'Add expense' : 'Add item'}</button>
         </header>
@@ -600,7 +607,7 @@ function App() {
           </div>
         )}
 
-        {view === 'forecast' && <WeeklyForecast forecast={forecast} minimumBuffer={data.settings.minimumBuffer} />}
+        {view === 'forecast' && <WeeklyForecast forecast={forecast} dailyForecast={daily90Forecast} minimumBuffer={data.settings.minimumBuffer} />}
         {view === 'report' && <ExpensesReport forecast={forecast} onAddExpense={() => openNewItem('variableExpenses')} />}
         <input ref={importInputRef} className="visually-hidden" type="file" accept="application/json,.json" onChange={importData} />
       </main>
