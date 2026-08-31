@@ -89,7 +89,7 @@ function CategoryBudgetPanel({ forecast, transactions, categoryBudgets, onSetCat
         <div>
           <span className="eyebrow">Monthly guardrails</span>
           <h2>Category budget limits</h2>
-          <p>Paid and scheduled expenses dated in the selected month are included.</p>
+          <p>Recurring bills, variable expenses and one-off bills all count toward the same category limit. Income is excluded.</p>
         </div>
         <div className="budget-actions">
           <label>
