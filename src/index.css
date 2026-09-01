@@ -250,6 +250,13 @@ input:focus, select:focus { border-color: #f36a21; background: #fffdfa; box-shad
 .item-title-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .item-title-row strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .item-main > span { display: block; overflow: hidden; margin-top: 4px; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.income-payment-tracker { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+.income-payment-tracker > span { color: #777778; font-size: 9px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+.income-payment-tracker button { border: 1px solid #9a9a9a; border-radius: 7px; padding: 5px 8px; color: #18191b; background: #f4f1ec; font-size: 9px; font-weight: 800; }
+.income-payment-tracker button:hover { border-color: #18191b; background: #e7e4de; }
+.income-payment-tracker button:disabled { cursor: not-allowed; opacity: .5; }
+.income-payment-pending > span { color: #bd4709; }
+.income-payment-pending button { border-color: #f36a21; background: #fde7dc; }
 .mini-tag { border-radius: 99px; padding: 3px 6px; color: #71300e; background: #fbd2bc; font-size: 8px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
 .tag-muted { color: #5f5f60; background: #dedbd5; }
 .positive-number { color: #414143; }

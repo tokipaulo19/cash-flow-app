@@ -50,10 +50,13 @@ function isMonthlyOccurrence(date, anchor, intervalMonths) {
 }
 
 export function occursOnDate(item, date) {
-  if (!item || item.active === false || item.status === 'Paid') return false
+  if (!item || item.active === false || (item.frequency === 'One-Off' && item.status === 'Paid')) return false
 
   const anchor = parseLocalDate(item.startDate)
   if (!anchor || date < anchor) return false
+
+  const paidThrough = item.type === 'income' ? parseLocalDate(item.paidThroughDate) : null
+  if (paidThrough && date <= paidThrough) return false
 
   const difference = calendarDayDifference(date, anchor)
 
@@ -74,6 +77,38 @@ export function occursOnDate(item, date) {
     default:
       return false
   }
+}
+
+export function nextExpectedOccurrence(item) {
+  const anchor = parseLocalDate(item?.startDate)
+  if (!anchor) return null
+
+  const paidThrough = parseLocalDate(item.paidThroughDate)
+  if (!paidThrough || paidThrough < anchor) return anchor
+
+  const scheduleItem = { ...item, active: true, status: 'Unpaid', paidThroughDate: '' }
+  let candidate = addDays(paidThrough, 1)
+
+  for (let offset = 0; offset < 800; offset += 1) {
+    if (occursOnDate(scheduleItem, candidate)) return candidate
+    candidate = addDays(candidate, 1)
+  }
+
+  return null
+}
+
+export function pendingOccurrenceCount(item, throughDate = new Date()) {
+  const end = new Date(throughDate.getFullYear(), throughDate.getMonth(), throughDate.getDate())
+  const scheduleItem = { ...item, active: true, status: 'Unpaid', paidThroughDate: '' }
+  let occurrence = nextExpectedOccurrence(item)
+  let count = 0
+
+  while (occurrence && occurrence <= end && count < 1000) {
+    count += 1
+    occurrence = nextExpectedOccurrence({ ...scheduleItem, paidThroughDate: toDateKey(occurrence) })
+  }
+
+  return count
 }
 
 export function generateDailyForecast({

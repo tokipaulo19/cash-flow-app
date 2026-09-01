@@ -95,8 +95,8 @@ function Dashboard({ balance, forecast, minimumBuffer }) {
       </section>
 
       <section className="metrics-grid">
-        <MetricCard label="Starting cash" value={money(balance)} note={`As of ${shortDate(forecast[0]?.date)}`} />
-        <MetricCard label="30-day inflow" value={money(monthIncome)} note="Scheduled income" tone="positive" />
+        <MetricCard label="Current cash on hand" value={money(balance)} note="Confirmed balance" />
+        <MetricCard label="30-day inflow" value={money(monthIncome)} note="Expected income" tone="positive" />
         <MetricCard label="30-day outflow" value={money(monthExpenses)} note="Bills and expenses" tone="negative" />
         <MetricCard label="30-day projected cash" value={money(projectedCash)} note={`${money(projectedCash - balance)} net change`} tone={projectedCash < 0 ? 'negative' : 'default'} />
         <MetricCard label="Lowest daily cash" value={money(lowestDay.balance)} note={shortDate(lowestDay.date)} tone={lowestDay.balance < minimumBuffer ? 'negative' : 'positive'} />

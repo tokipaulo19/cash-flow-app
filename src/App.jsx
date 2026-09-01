@@ -5,7 +5,7 @@ import GithubSyncPanel from './components/GithubSyncPanel'
 import WeeklyForecast from './components/WeeklyForecast'
 import StatusBadge from './components/StatusBadge'
 import { financeData } from './data/financeData'
-import { generateDailyForecast } from './engine/forecastEngine'
+import { generateDailyForecast, nextExpectedOccurrence, pendingOccurrenceCount, toDateKey } from './engine/forecastEngine'
 import { DEFAULT_GITHUB_SYNC, loadGithubData, saveGithubData } from './services/githubSync'
 import { money, shortDate } from './utils/formatters'
 
@@ -13,7 +13,7 @@ const STORAGE_KEY = 'cash-flow-planner-v2'
 const SYNC_CONFIG_KEY = 'cash-flow-github-sync-v1'
 
 const sections = [
-  { key: 'recurringIncome', label: 'Recurring income', singular: 'income source', description: 'Set-and-forget income streams' },
+  { key: 'recurringIncome', label: 'Recurring income', singular: 'income source', description: 'Expected income with payment tracking' },
   { key: 'recurringBills', label: 'Recurring bills', singular: 'recurring bill', description: 'Bills generated from an anchor date' },
   { key: 'variableExpenses', label: 'Variable expenses', singular: 'planned expense', description: 'Dated discretionary or planned spending' },
   { key: 'oneOffBills', label: 'One-off bills', singular: 'one-off bill', description: 'Irregular bills with a single due date' },
@@ -77,6 +77,7 @@ function emptyForm(section = 'recurringIncome', startDate = '') {
     amount: '',
     category: '',
     subcategory: '',
+    paidThroughDate: '',
     startDate,
     frequency: section === 'recurringIncome' ? 'Weekly' : section === 'recurringBills' ? 'Monthly' : 'One-Off',
     active: true,
@@ -126,7 +127,7 @@ function SettingsPanel({ data, setData, onExport, onImport }) {
       </div>
       <div className="settings-grid">
         <label>
-          <span>Starting available cash</span>
+          <span>Current cash on hand</span>
           <div className="currency-input"><b>₱</b><input type="number" min="0" step="100" value={data.balance} onChange={(event) => setData((current) => ({ ...current, balance: Number(event.target.value) }))} /></div>
         </label>
         <label>
@@ -232,7 +233,7 @@ function ItemForm({ form, setForm, editing, onSubmit, onCancel }) {
   )
 }
 
-function ItemGroup({ section, items, onEdit, onDelete, onToggle }) {
+function ItemGroup({ section, items, onEdit, onDelete, onToggle, onReceiveIncome }) {
   return (
     <section className="panel item-group">
       <div className="item-group-heading">
@@ -245,7 +246,10 @@ function ItemGroup({ section, items, onEdit, onDelete, onToggle }) {
       {items.length ? (
         <div className="item-list">
           {items.map((item) => {
-            const paused = item.active === false || item.status === 'Paid'
+            const recurring = section.key === 'recurringIncome' || section.key === 'recurringBills'
+            const paused = recurring ? item.active === false : item.status === 'Paid'
+            const nextPayment = item.type === 'income' ? nextExpectedOccurrence(item) : null
+            const pendingPayments = item.type === 'income' ? pendingOccurrenceCount(item) : 0
             return (
               <article className={`item-row ${paused ? 'item-paused' : ''}`} key={item.id}>
                 <div className={`item-avatar ${item.type === 'income' ? 'avatar-income' : 'avatar-expense'}`}>{item.name.slice(0, 1).toUpperCase()}</div>
@@ -253,14 +257,22 @@ function ItemGroup({ section, items, onEdit, onDelete, onToggle }) {
                   <div className="item-title-row">
                     <strong>{item.name}</strong>
                     {item.mandatory && <span className="mini-tag">Mandatory</span>}
-                    {paused && <span className="mini-tag tag-muted">{item.status === 'Paid' ? 'Paid' : 'Paused'}</span>}
+                    {paused && <span className="mini-tag tag-muted">{recurring ? 'Paused' : 'Paid'}</span>}
                   </div>
                   <span>{item.frequency} · {shortDate(item.startDate)}{item.category ? ` · ${item.category}` : ''}{item.subcategory ? ` › ${item.subcategory}` : ''}</span>
+                  {nextPayment && (
+                    <div className={`income-payment-tracker ${pendingPayments ? 'income-payment-pending' : ''}`}>
+                      <span>{pendingPayments ? `${pendingPayments} payment${pendingPayments === 1 ? '' : 's'} pending` : 'Next expected payment'}</span>
+                      <button type="button" disabled={paused} title={`Add ${money(item.amount)} to current cash and advance this income schedule`} onClick={() => onReceiveIncome(section.key, item)}>
+                        Mark {shortDate(toDateKey(nextPayment))} paid
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <strong className={item.type === 'income' ? 'positive-number' : ''}>{item.type === 'income' ? '+' : '−'}{money(item.amount)}</strong>
                 <div className="item-actions">
-                  <button className="icon-button" type="button" title={item.status ? (item.status === 'Paid' ? 'Mark unpaid' : 'Mark paid') : (item.active === false ? 'Resume' : 'Pause')} onClick={() => onToggle(section.key, item)}>
-                    {item.status ? (item.status === 'Paid' ? '↺' : '✓') : (item.active === false ? '▶' : 'Ⅱ')}
+                  <button className="icon-button" type="button" title={recurring ? (item.active === false ? 'Resume' : 'Pause') : (item.status === 'Paid' ? 'Mark unpaid' : 'Mark paid')} onClick={() => onToggle(section.key, item)}>
+                    {recurring ? (item.active === false ? '▶' : 'Ⅱ') : (item.status === 'Paid' ? '↺' : '✓')}
                   </button>
                   <button className="icon-button" type="button" title="Edit" onClick={() => onEdit(section.key, item)}><Icon name="edit" /></button>
                   <button className="icon-button danger-button" type="button" title="Delete" onClick={() => onDelete(section.key, item)}><Icon name="trash" /></button>
@@ -407,6 +419,10 @@ function App() {
       frequency: form.section === 'recurringIncome' || form.section === 'recurringBills' ? form.frequency : 'One-Off',
     }
     delete item.section
+    const recurring = form.section === 'recurringIncome' || form.section === 'recurringBills'
+    if (recurring) delete item.status
+    else delete item.active
+    if (form.section !== 'recurringIncome') delete item.paidThroughDate
 
     setData((current) => ({
       ...current,
@@ -430,13 +446,36 @@ function App() {
   }
 
   const toggleItem = (section, item) => {
-    const patch = item.status
-      ? { status: item.status === 'Paid' ? 'Unpaid' : 'Paid' }
-      : { active: item.active === false }
+    const recurring = section === 'recurringIncome' || section === 'recurringBills'
+    const patch = recurring
+      ? { active: item.active === false }
+      : { status: item.status === 'Paid' ? 'Unpaid' : 'Paid' }
     setData((current) => ({
       ...current,
       [section]: current[section].map((existing) => existing.id === item.id ? { ...existing, ...patch } : existing),
     }))
+  }
+
+  const receiveIncome = (section, item) => {
+    const expectedDate = nextExpectedOccurrence(item)
+    if (!expectedDate || item.active === false) return
+
+    const expectedDateKey = toDateKey(expectedDate)
+    if (!window.confirm(`Mark the ${shortDate(expectedDateKey)} payment from ${item.name} as received and add ${money(item.amount)} to current cash?`)) return
+
+    setData((current) => {
+      const currentItem = current[section].find((existing) => existing.id === item.id)
+      const currentExpectedDate = nextExpectedOccurrence(currentItem)
+      if (!currentItem || !currentExpectedDate || toDateKey(currentExpectedDate) !== expectedDateKey) return current
+
+      return {
+        ...current,
+        balance: (Number(current.balance) || 0) + (Number(currentItem.amount) || 0),
+        [section]: current[section].map((existing) => existing.id === item.id
+          ? { ...existing, paidThroughDate: expectedDateKey }
+          : existing),
+      }
+    })
   }
 
   const resetData = () => {
@@ -609,7 +648,7 @@ function App() {
             <GithubSyncPanel config={syncConfig} status={syncStatus} message={syncMessage} lastSyncedAt={lastSyncedAt} onConnect={connectGithub} onPull={pullGithubData} onPush={pushGithubData} onDisconnect={disconnectGithub} />
             <ItemForm form={form} setForm={setForm} editing={editing} onSubmit={submitItem} onCancel={() => { setEditing(null); setForm(emptyForm(form.section, data.settings.forecastStartDate)) }} />
             <div className="item-groups-grid">
-              {sections.map((section) => <ItemGroup key={section.key} section={section} items={data[section.key]} onEdit={editItem} onDelete={deleteItem} onToggle={toggleItem} />)}
+              {sections.map((section) => <ItemGroup key={section.key} section={section} items={data[section.key]} onEdit={editItem} onDelete={deleteItem} onToggle={toggleItem} onReceiveIncome={receiveIncome} />)}
             </div>
           </div>
         )}
