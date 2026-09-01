@@ -5,7 +5,7 @@ import GithubSyncPanel from './components/GithubSyncPanel'
 import WeeklyForecast from './components/WeeklyForecast'
 import StatusBadge from './components/StatusBadge'
 import { financeData } from './data/financeData'
-import { generateDailyForecast, nextExpectedOccurrence, pendingOccurrenceCount, toDateKey } from './engine/forecastEngine'
+import { generateDailyForecast, nextExpectedOccurrence, pendingOccurrenceCount, recurringEndDate, toDateKey } from './engine/forecastEngine'
 import { DEFAULT_GITHUB_SYNC, loadGithubData, saveGithubData } from './services/githubSync'
 import { money, shortDate } from './utils/formatters'
 
@@ -78,6 +78,8 @@ function emptyForm(section = 'recurringIncome', startDate = '') {
     category: '',
     subcategory: '',
     paidThroughDate: '',
+    endless: true,
+    durationMonths: '12',
     startDate,
     frequency: section === 'recurringIncome' ? 'Weekly' : section === 'recurringBills' ? 'Monthly' : 'One-Off',
     active: true,
@@ -159,6 +161,9 @@ function ItemForm({ form, setForm, editing, onSubmit, onCancel }) {
   const frequencyOptions = form.section === 'recurringIncome'
     ? ['Weekly', 'Fortnightly', 'Monthly']
     : ['Weekly', 'Fortnightly', 'Monthly', 'Quarterly', 'Annual']
+  const durationEnd = form.section === 'recurringBills'
+    ? recurringEndDate({ ...form, durationMonths: Number(form.durationMonths) })
+    : null
 
   const update = (field, value) => setForm((current) => ({ ...current, [field]: value }))
   const changeSection = (section) => {
@@ -205,6 +210,20 @@ function ItemForm({ form, setForm, editing, onSubmit, onCancel }) {
             </select>
           </label>
         )}
+        {form.section === 'recurringBills' && (
+          <div className="duration-control field-wide">
+            <label className="toggle"><input type="checkbox" checked={form.endless} onChange={(event) => update('endless', event.target.checked)} /><span />No end date</label>
+            {!form.endless && (
+              <>
+                <label className="duration-months">
+                  <span>Duration in months</span>
+                  <input required type="number" min="1" max="600" step="1" value={form.durationMonths} onChange={(event) => update('durationMonths', event.target.value)} />
+                </label>
+                <div className="duration-preview"><span>Scheduled end</span><strong>{durationEnd ? shortDate(toDateKey(durationEnd)) : 'Enter a duration'}</strong></div>
+              </>
+            )}
+          </div>
+        )}
         <label>
           <span>Category <em>optional</em></span>
           <input value={form.category} placeholder="e.g. Housing" onChange={(event) => update('category', event.target.value)} />
@@ -250,6 +269,7 @@ function ItemGroup({ section, items, onEdit, onDelete, onToggle, onReceiveIncome
             const paused = recurring ? item.active === false : item.status === 'Paid'
             const nextPayment = item.type === 'income' ? nextExpectedOccurrence(item) : null
             const pendingPayments = item.type === 'income' ? pendingOccurrenceCount(item) : 0
+            const billEndDate = section.key === 'recurringBills' ? recurringEndDate(item) : null
             return (
               <article className={`item-row ${paused ? 'item-paused' : ''}`} key={item.id}>
                 <div className={`item-avatar ${item.type === 'income' ? 'avatar-income' : 'avatar-expense'}`}>{item.name.slice(0, 1).toUpperCase()}</div>
@@ -259,7 +279,7 @@ function ItemGroup({ section, items, onEdit, onDelete, onToggle, onReceiveIncome
                     {item.mandatory && <span className="mini-tag">Mandatory</span>}
                     {paused && <span className="mini-tag tag-muted">{recurring ? 'Paused' : 'Paid'}</span>}
                   </div>
-                  <span>{item.frequency} · {shortDate(item.startDate)}{item.category ? ` · ${item.category}` : ''}{item.subcategory ? ` › ${item.subcategory}` : ''}</span>
+                  <span>{item.frequency} · {shortDate(item.startDate)}{item.category ? ` · ${item.category}` : ''}{item.subcategory ? ` › ${item.subcategory}` : ''}{section.key === 'recurringBills' ? billEndDate ? ` · Ends ${shortDate(toDateKey(billEndDate))}` : ' · No end date' : ''}</span>
                   {nextPayment && (
                     <div className={`income-payment-tracker ${pendingPayments ? 'income-payment-pending' : ''}`}>
                       <span>{pendingPayments ? `${pendingPayments} payment${pendingPayments === 1 ? '' : 's'} pending` : 'Next expected payment'}</span>
@@ -423,13 +443,50 @@ function App() {
     if (recurring) delete item.status
     else delete item.active
     if (form.section !== 'recurringIncome') delete item.paidThroughDate
+    if (form.section === 'recurringBills') {
+      item.endless = Boolean(form.endless)
+      item.durationMonths = item.endless ? 0 : Math.max(1, Math.floor(Number(form.durationMonths) || 1))
+    } else {
+      delete item.endless
+      delete item.durationMonths
+    }
 
-    setData((current) => ({
-      ...current,
-      [form.section]: editing
-        ? current[form.section].map((existing) => existing.id === editing.id ? item : existing)
-        : [...current[form.section], item],
-    }))
+    setData((current) => {
+      let balance = Number(current.balance) || 0
+      let savedItem = item
+
+      if (!recurring) {
+        const existing = editing ? current[form.section].find((candidate) => candidate.id === editing.id) : null
+        const wasPaid = existing?.status === 'Paid'
+        const wasCashAdjusted = Boolean(existing?.cashAdjustedOnPaid)
+        const willBePaid = item.status === 'Paid'
+        let cashAdjustedOnPaid = false
+
+        if (!existing && willBePaid) {
+          balance -= item.amount
+          cashAdjustedOnPaid = true
+        } else if (existing) {
+          if (wasCashAdjusted) {
+            balance += Number(existing.amount) || 0
+            if (willBePaid) balance -= item.amount
+            cashAdjustedOnPaid = willBePaid
+          } else if (!wasPaid && willBePaid) {
+            balance -= item.amount
+            cashAdjustedOnPaid = true
+          }
+        }
+
+        savedItem = { ...item, cashAdjustedOnPaid }
+      }
+
+      return {
+        ...current,
+        balance,
+        [form.section]: editing
+          ? current[form.section].map((existing) => existing.id === editing.id ? savedItem : existing)
+          : [...current[form.section], savedItem],
+      }
+    })
     setEditing(null)
     setForm(emptyForm(form.section, data.settings.forecastStartDate))
   }
@@ -447,12 +504,29 @@ function App() {
 
   const toggleItem = (section, item) => {
     const recurring = section === 'recurringIncome' || section === 'recurringBills'
-    const patch = recurring
-      ? { active: item.active === false }
-      : { status: item.status === 'Paid' ? 'Unpaid' : 'Paid' }
+    if (recurring) {
+      setData((current) => ({
+        ...current,
+        [section]: current[section].map((existing) => existing.id === item.id ? { ...existing, active: item.active === false } : existing),
+      }))
+      return
+    }
+
+    const markingPaid = item.status !== 'Paid'
+    const cashWasAdjusted = Boolean(item.cashAdjustedOnPaid)
+    const prompt = markingPaid
+      ? `Mark ${item.name} as paid and deduct ${money(item.amount)} from current cash?`
+      : cashWasAdjusted
+        ? `Undo the paid status for ${item.name} and return ${money(item.amount)} to current cash?`
+        : `Mark ${item.name} as unpaid? Current cash will not change because this payment predates automatic cash tracking.`
+    if (!window.confirm(prompt)) return
+
     setData((current) => ({
       ...current,
-      [section]: current[section].map((existing) => existing.id === item.id ? { ...existing, ...patch } : existing),
+      balance: (Number(current.balance) || 0) + (markingPaid ? -(Number(item.amount) || 0) : cashWasAdjusted ? (Number(item.amount) || 0) : 0),
+      [section]: current[section].map((existing) => existing.id === item.id
+        ? { ...existing, status: markingPaid ? 'Paid' : 'Unpaid', cashAdjustedOnPaid: markingPaid }
+        : existing),
     }))
   }
 

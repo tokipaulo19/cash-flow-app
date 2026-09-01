@@ -9,10 +9,75 @@ function weekday(value) {
   return new Intl.DateTimeFormat('en-PH', { weekday: 'short' }).format(new Date(year, month - 1, day))
 }
 
+function eventCategory(event) {
+  const category = event.category?.trim()
+  const subcategory = event.subcategory?.trim()
+  return [category, subcategory].filter(Boolean).join(' › ') || (event.type === 'income' ? 'Income' : 'Uncategorised')
+}
+
+function ForecastBreakdown({ title, period, days, onClose }) {
+  const events = days.flatMap((day) => day.events.map((event) => ({ ...event, occurrenceDate: day.date })))
+  const incomeEvents = events.filter((event) => event.type === 'income')
+  const expenseEvents = events.filter((event) => event.type === 'expense')
+  const income = incomeEvents.reduce((sum, event) => sum + event.amount, 0)
+  const expenses = expenseEvents.reduce((sum, event) => sum + event.amount, 0)
+
+  const renderEvents = (items, emptyCopy) => items.length ? items.map((event, index) => (
+    <div className="forecast-breakdown-event" key={`${event.id || event.name}-${event.occurrenceDate}-${index}`}>
+      <div>
+        <strong>{event.name}</strong>
+        <span>{shortDate(event.occurrenceDate)} · {eventCategory(event)}</span>
+      </div>
+      <strong className={event.type === 'income' ? 'positive-number' : 'negative-number'}>{event.type === 'income' ? '+' : '−'}{money(event.amount)}</strong>
+    </div>
+  )) : <p className="forecast-breakdown-empty">{emptyCopy}</p>
+
+  return (
+    <aside className="forecast-breakdown" aria-live="polite">
+      <div className="forecast-breakdown-heading">
+        <div><span className="eyebrow">Selected period</span><h3>{title}</h3><p>{period}</p></div>
+        <button className="button-secondary button-small" type="button" onClick={onClose}>Close details</button>
+      </div>
+      <div className="forecast-breakdown-summary">
+        <div><span>Expected income</span><strong>{money(income)}</strong></div>
+        <div><span>Outgoing</span><strong>{money(expenses)}</strong></div>
+        <div><span>Net movement</span><strong className={income - expenses >= 0 ? 'positive-number' : 'negative-number'}>{money(income - expenses)}</strong></div>
+      </div>
+      <div className="forecast-breakdown-columns">
+        <section><h4>Income</h4>{renderEvents(incomeEvents, 'No income expected in this period.')}</section>
+        <section><h4>Expenses</h4>{renderEvents(expenseEvents, 'No expenses expected in this period.')}</section>
+      </div>
+    </aside>
+  )
+}
+
 function WeeklyForecast({ forecast, dailyForecast, minimumBuffer }) {
   const [view, setView] = useState('weekly')
+  const [selection, setSelection] = useState(null)
   const weeks = generateWeeklyForecast(forecast, minimumBuffer)
   const days = dailyForecast.slice(0, 90)
+  const selectedDays = selection?.view === 'weekly'
+    ? forecast.slice((selection.key - 1) * 7, selection.key * 7)
+    : selection?.view === 'daily'
+      ? days.filter((day) => day.date === selection.key)
+      : []
+  const selectedTitle = selection?.view === 'weekly' ? `Week ${String(selection.key).padStart(2, '0')} breakdown` : 'Daily breakdown'
+  const selectedPeriod = selectedDays.length > 1 ? dateRange(selectedDays[0].date, selectedDays.at(-1).date) : shortDate(selectedDays[0]?.date)
+
+  const changeView = (nextView) => {
+    setView(nextView)
+    setSelection(null)
+  }
+
+  const toggleSelection = (nextSelection) => {
+    setSelection((current) => current?.view === nextSelection.view && current.key === nextSelection.key ? null : nextSelection)
+  }
+
+  const handleRowKey = (event, nextSelection) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    toggleSelection(nextSelection)
+  }
 
   return (
     <section className="panel forecast-panel">
@@ -24,8 +89,8 @@ function WeeklyForecast({ forecast, dailyForecast, minimumBuffer }) {
         </div>
         <div className="forecast-heading-actions">
           <div className="forecast-view-toggle" aria-label="Forecast detail">
-            <button type="button" className={view === 'weekly' ? 'toggle-active' : ''} aria-pressed={view === 'weekly'} onClick={() => setView('weekly')}>Weekly</button>
-            <button type="button" className={view === 'daily' ? 'toggle-active' : ''} aria-pressed={view === 'daily'} onClick={() => setView('daily')}>Daily</button>
+            <button type="button" className={view === 'weekly' ? 'toggle-active' : ''} aria-pressed={view === 'weekly'} onClick={() => changeView('weekly')}>Weekly</button>
+            <button type="button" className={view === 'daily' ? 'toggle-active' : ''} aria-pressed={view === 'daily'} onClick={() => changeView('daily')}>Daily</button>
           </div>
           <div className="forecast-legend">
             <span><i className="legend-dot legend-safe" />Above buffer</span>
@@ -53,7 +118,7 @@ function WeeklyForecast({ forecast, dailyForecast, minimumBuffer }) {
             </thead>
             <tbody>
               {weeks.map((week) => (
-                <tr key={week.week}>
+                <tr className={`forecast-clickable-row ${selection?.view === 'weekly' && selection.key === week.week ? 'forecast-row-selected' : ''}`} key={week.week} tabIndex="0" aria-selected={selection?.view === 'weekly' && selection.key === week.week} onClick={() => toggleSelection({ view: 'weekly', key: week.week })} onKeyDown={(event) => handleRowKey(event, { view: 'weekly', key: week.week })}>
                   <td><strong>{String(week.week).padStart(2, '0')}</strong></td>
                   <td>{dateRange(week.start, week.end)}</td>
                   <td className="number-cell">{money(week.openingBalance)}</td>
@@ -89,7 +154,7 @@ function WeeklyForecast({ forecast, dailyForecast, minimumBuffer }) {
                 const netChange = day.income - day.expenses
                 const activity = day.events.map((event) => event.name).join(', ')
                 return (
-                  <tr key={day.date}>
+                  <tr className={`forecast-clickable-row ${selection?.view === 'daily' && selection.key === day.date ? 'forecast-row-selected' : ''}`} key={day.date} tabIndex="0" aria-selected={selection?.view === 'daily' && selection.key === day.date} onClick={() => toggleSelection({ view: 'daily', key: day.date })} onKeyDown={(event) => handleRowKey(event, { view: 'daily', key: day.date })}>
                     <td><strong>{String(index + 1).padStart(2, '0')}</strong></td>
                     <td><span className="daily-date"><strong>{weekday(day.date)}</strong>{shortDate(day.date)}</span></td>
                     <td className="activity-cell" title={activity || 'No scheduled activity'}>{activity || '—'}</td>
@@ -106,6 +171,7 @@ function WeeklyForecast({ forecast, dailyForecast, minimumBuffer }) {
           </table>
         </div>
       )}
+      {selection && selectedDays.length > 0 && <ForecastBreakdown title={selectedTitle} period={selectedPeriod} days={selectedDays} onClose={() => setSelection(null)} />}
     </section>
   )
 }

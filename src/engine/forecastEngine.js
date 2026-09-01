@@ -20,6 +20,16 @@ function addDays(date, amount) {
   return copy
 }
 
+function addMonthsClamped(date, amount) {
+  const copy = new Date(date)
+  const day = copy.getDate()
+  copy.setDate(1)
+  copy.setMonth(copy.getMonth() + amount)
+  const lastDay = new Date(copy.getFullYear(), copy.getMonth() + 1, 0).getDate()
+  copy.setDate(Math.min(day, lastDay))
+  return copy
+}
+
 function calendarDayDifference(later, earlier) {
   return Math.round(
     (Date.UTC(later.getFullYear(), later.getMonth(), later.getDate()) -
@@ -49,11 +59,22 @@ function isMonthlyOccurrence(date, anchor, intervalMonths) {
   return date.getDate() === Math.min(anchor.getDate(), lastDayOfMonth)
 }
 
+export function recurringEndDate(item) {
+  if (item?.endless !== false) return null
+  const anchor = parseLocalDate(item.startDate)
+  const durationMonths = Math.max(0, Math.floor(Number(item.durationMonths) || 0))
+  if (!anchor || !durationMonths) return null
+  return addDays(addMonthsClamped(anchor, durationMonths), -1)
+}
+
 export function occursOnDate(item, date) {
   if (!item || item.active === false || (item.frequency === 'One-Off' && item.status === 'Paid')) return false
 
   const anchor = parseLocalDate(item.startDate)
   if (!anchor || date < anchor) return false
+
+  const endDate = recurringEndDate(item)
+  if (endDate && date > endDate) return false
 
   const paidThrough = item.type === 'income' ? parseLocalDate(item.paidThroughDate) : null
   if (paidThrough && date <= paidThrough) return false
