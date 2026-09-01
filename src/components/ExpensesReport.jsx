@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { occursOnDate } from '../engine/forecastEngine'
+import { occursOnDate, scheduledOccurrenceAmount } from '../engine/forecastEngine'
 import { money, shortDate } from '../utils/formatters'
 
 const chartColours = ['#f36a21', '#18191b', '#9a9a9a', '#c64e10', '#5c5c5d', '#f4a177', '#353536', '#c8c5bf']
@@ -68,8 +68,10 @@ function CategoryBudgetPanel({ forecast, transactions, categoryBudgets, onSetCat
       const subcategory = subcategoryNameFor(item)
       for (let day = 1; day <= daysInMonth; day += 1) {
         const date = new Date(year, month - 1, day)
-        if (occursOnDate({ ...item, status: 'Unpaid' }, date)) {
-          const amount = Number(item.amount) || 0
+        const scheduledItem = { ...item, status: 'Unpaid', paidThroughDate: '', trackBalance: false }
+        if (occursOnDate(scheduledItem, date)) {
+          const amount = scheduledOccurrenceAmount(item, date)
+          if (amount <= 0) continue
           const categoryTotal = totals[category] || { total: 0, subcategories: {} }
           categoryTotal.total += amount
           categoryTotal.subcategories[subcategory] = (categoryTotal.subcategories[subcategory] || 0) + amount

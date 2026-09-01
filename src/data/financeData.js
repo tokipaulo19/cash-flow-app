@@ -9,6 +9,7 @@ function todayKey() {
 export const financeData = {
   balance: 0,
   recurringIncome: [],
+  oneOffIncome: [],
   recurringBills: [],
   variableExpenses: [],
   oneOffBills: [],

@@ -5,7 +5,7 @@ import GithubSyncPanel from './components/GithubSyncPanel'
 import WeeklyForecast from './components/WeeklyForecast'
 import StatusBadge from './components/StatusBadge'
 import { financeData } from './data/financeData'
-import { generateDailyForecast, nextExpectedOccurrence, pendingOccurrenceCount, recurringEndDate, toDateKey } from './engine/forecastEngine'
+import { generateDailyForecast, nextExpectedOccurrence, pendingOccurrenceCount, recurringEndDate, remainingBillBalance, toDateKey } from './engine/forecastEngine'
 import { DEFAULT_GITHUB_SYNC, loadGithubData, saveGithubData } from './services/githubSync'
 import { money, shortDate } from './utils/formatters'
 
@@ -14,6 +14,7 @@ const SYNC_CONFIG_KEY = 'cash-flow-github-sync-v1'
 
 const sections = [
   { key: 'recurringIncome', label: 'Recurring income', singular: 'income source', description: 'Expected income with payment tracking' },
+  { key: 'oneOffIncome', label: 'One-off income', singular: 'one-off income', description: 'Single payments with actual amount tracking' },
   { key: 'recurringBills', label: 'Recurring bills', singular: 'recurring bill', description: 'Bills generated from an anchor date' },
   { key: 'variableExpenses', label: 'Variable expenses', singular: 'planned expense', description: 'Dated discretionary or planned spending' },
   { key: 'oneOffBills', label: 'One-off bills', singular: 'one-off bill', description: 'Irregular bills with a single due date' },
@@ -24,13 +25,14 @@ function cloneDefaultData() {
 }
 
 function normalizeData(imported) {
-  const requiredLists = sections.map((section) => section.key)
+  const requiredLists = ['recurringIncome', 'recurringBills', 'variableExpenses', 'oneOffBills']
   const isValid = imported && requiredLists.every((key) => Array.isArray(imported[key])) && imported.settings && typeof imported.settings === 'object'
   if (!isValid) throw new Error('Invalid cash-flow data structure')
 
   return {
     ...cloneDefaultData(),
     ...imported,
+    oneOffIncome: Array.isArray(imported.oneOffIncome) ? imported.oneOffIncome : [],
     balance: Number(imported.balance) || 0,
     settings: { ...financeData.settings, ...imported.settings },
   }
@@ -80,10 +82,14 @@ function emptyForm(section = 'recurringIncome', startDate = '') {
     paidThroughDate: '',
     endless: true,
     durationMonths: '12',
+    trackBalance: false,
+    totalAmount: '',
+    amountPaid: '0',
+    remainingAmount: '',
     startDate,
     frequency: section === 'recurringIncome' ? 'Weekly' : section === 'recurringBills' ? 'Monthly' : 'One-Off',
     active: true,
-    mandatory: section !== 'recurringIncome' && section !== 'variableExpenses',
+    mandatory: section !== 'recurringIncome' && section !== 'oneOffIncome' && section !== 'variableExpenses',
     status: 'Unpaid',
     notes: '',
   }
@@ -164,6 +170,7 @@ function ItemForm({ form, setForm, editing, onSubmit, onCancel }) {
   const durationEnd = form.section === 'recurringBills'
     ? recurringEndDate({ ...form, durationMonths: Number(form.durationMonths) })
     : null
+  const formRemaining = Math.max(0, (Number(form.totalAmount) || 0) - (Number(form.amountPaid) || 0))
 
   const update = (field, value) => setForm((current) => ({ ...current, [field]: value }))
   const changeSection = (section) => {
@@ -171,7 +178,7 @@ function ItemForm({ form, setForm, editing, onSubmit, onCancel }) {
       ...current,
       section,
       frequency: section === 'recurringIncome' ? 'Weekly' : section === 'recurringBills' ? 'Monthly' : 'One-Off',
-      mandatory: section !== 'recurringIncome' && section !== 'variableExpenses',
+      mandatory: section !== 'recurringIncome' && section !== 'oneOffIncome' && section !== 'variableExpenses',
     }))
   }
 
@@ -211,24 +218,42 @@ function ItemForm({ form, setForm, editing, onSubmit, onCancel }) {
           </label>
         )}
         {form.section === 'recurringBills' && (
-          <div className="duration-control field-wide">
-            <label className="toggle"><input type="checkbox" checked={form.endless} onChange={(event) => update('endless', event.target.checked)} /><span />No end date</label>
-            {!form.endless && (
-              <>
-                <label className="duration-months">
-                  <span>Duration in months</span>
-                  <input required type="number" min="1" max="600" step="1" value={form.durationMonths} onChange={(event) => update('durationMonths', event.target.value)} />
-                </label>
-                <div className="duration-preview"><span>Scheduled end</span><strong>{durationEnd ? shortDate(toDateKey(durationEnd)) : 'Enter a duration'}</strong></div>
-              </>
-            )}
-          </div>
+          <>
+            <div className="duration-control field-wide">
+              <label className="toggle"><input type="checkbox" checked={form.endless} onChange={(event) => update('endless', event.target.checked)} /><span />No end date</label>
+              {!form.endless && (
+                <>
+                  <label className="duration-months">
+                    <span>Duration in months</span>
+                    <input required type="number" min="1" max="600" step="1" value={form.durationMonths} onChange={(event) => update('durationMonths', event.target.value)} />
+                  </label>
+                  <div className="duration-preview"><span>Scheduled end</span><strong>{durationEnd ? shortDate(toDateKey(durationEnd)) : 'Enter a duration'}</strong></div>
+                </>
+              )}
+            </div>
+            <div className="balance-control field-wide">
+              <label className="toggle"><input type="checkbox" checked={form.trackBalance} onChange={(event) => update('trackBalance', event.target.checked)} /><span />Track a total balance</label>
+              {form.trackBalance && (
+                <div className="balance-fields">
+                  <label>
+                    <span>Total amount to pay</span>
+                    <div className="currency-input"><b>₱</b><input required type="number" min="0.01" step="0.01" value={form.totalAmount} onChange={(event) => update('totalAmount', event.target.value)} /></div>
+                  </label>
+                  <label>
+                    <span>Amount already paid</span>
+                    <div className="currency-input"><b>₱</b><input required type="number" min="0" max={Number(form.totalAmount) || undefined} step="0.01" value={form.amountPaid} onChange={(event) => update('amountPaid', event.target.value)} /></div>
+                  </label>
+                  <div className="balance-preview"><span>Amount remaining</span><strong>{money(formRemaining)}</strong></div>
+                </div>
+              )}
+            </div>
+          </>
         )}
         <label>
           <span>Category <em>optional</em></span>
           <input value={form.category} placeholder="e.g. Housing" onChange={(event) => update('category', event.target.value)} />
         </label>
-        {form.section !== 'recurringIncome' && (
+        {form.section !== 'recurringIncome' && form.section !== 'oneOffIncome' && (
           <label>
             <span>Subcategory <em>optional</em></span>
             <input value={form.subcategory} placeholder="e.g. Rent, Electricity" onChange={(event) => update('subcategory', event.target.value)} />
@@ -240,7 +265,7 @@ function ItemForm({ form, setForm, editing, onSubmit, onCancel }) {
         </label>
         <div className="toggle-group field-wide">
           {recurring && <label className="toggle"><input type="checkbox" checked={form.active} onChange={(event) => update('active', event.target.checked)} /><span />Active</label>}
-          {form.section !== 'recurringIncome' && <label className="toggle"><input type="checkbox" checked={form.mandatory} onChange={(event) => update('mandatory', event.target.checked)} /><span />Mandatory</label>}
+          {form.section !== 'recurringIncome' && form.section !== 'oneOffIncome' && <label className="toggle"><input type="checkbox" checked={form.mandatory} onChange={(event) => update('mandatory', event.target.checked)} /><span />Mandatory</label>}
           {!recurring && <label className="toggle"><input type="checkbox" checked={form.status === 'Paid'} onChange={(event) => update('status', event.target.checked ? 'Paid' : 'Unpaid')} /><span />Already paid</label>}
         </div>
         <div className="form-actions field-wide">
@@ -252,7 +277,20 @@ function ItemForm({ form, setForm, editing, onSubmit, onCancel }) {
   )
 }
 
-function ItemGroup({ section, items, onEdit, onDelete, onToggle, onReceiveIncome }) {
+function ItemGroup({ section, items, onEdit, onDelete, onToggle, onReceiveIncome, onPayBill }) {
+  const [incomeDraft, setIncomeDraft] = useState(null)
+
+  const openIncomePayment = (item, expectedDate) => {
+    setIncomeDraft({ itemId: item.id, expectedDate: toDateKey(expectedDate), amount: String(item.amount) })
+  }
+
+  const confirmIncomePayment = (item) => {
+    const actualAmount = Number(incomeDraft?.amount)
+    if (!Number.isFinite(actualAmount) || actualAmount <= 0) return
+    onReceiveIncome(section.key, item, actualAmount)
+    setIncomeDraft(null)
+  }
+
   return (
     <section className="panel item-group">
       <div className="item-group-heading">
@@ -267,9 +305,14 @@ function ItemGroup({ section, items, onEdit, onDelete, onToggle, onReceiveIncome
           {items.map((item) => {
             const recurring = section.key === 'recurringIncome' || section.key === 'recurringBills'
             const paused = recurring ? item.active === false : item.status === 'Paid'
-            const nextPayment = item.type === 'income' ? nextExpectedOccurrence(item) : null
-            const pendingPayments = item.type === 'income' ? pendingOccurrenceCount(item) : 0
+            const paymentTracked = item.type === 'income' || section.key === 'recurringBills'
+            const nextPayment = paymentTracked && item.status !== 'Paid' ? nextExpectedOccurrence(item) : null
+            const pendingPayments = paymentTracked ? pendingOccurrenceCount(item) : 0
             const billEndDate = section.key === 'recurringBills' ? recurringEndDate(item) : null
+            const remaining = section.key === 'recurringBills' ? remainingBillBalance(item) : null
+            const paidOff = item.trackBalance && remaining <= 0
+            const paidAmount = item.trackBalance ? Math.max(0, Number(item.totalAmount) - remaining) : 0
+            const paidPercent = item.trackBalance && Number(item.totalAmount) > 0 ? Math.min(100, (paidAmount / Number(item.totalAmount)) * 100) : 0
             return (
               <article className={`item-row ${paused ? 'item-paused' : ''}`} key={item.id}>
                 <div className={`item-avatar ${item.type === 'income' ? 'avatar-income' : 'avatar-expense'}`}>{item.name.slice(0, 1).toUpperCase()}</div>
@@ -278,20 +321,40 @@ function ItemGroup({ section, items, onEdit, onDelete, onToggle, onReceiveIncome
                     <strong>{item.name}</strong>
                     {item.mandatory && <span className="mini-tag">Mandatory</span>}
                     {paused && <span className="mini-tag tag-muted">{recurring ? 'Paused' : 'Paid'}</span>}
+                    {paidOff && <span className="mini-tag">Paid off</span>}
                   </div>
                   <span>{item.frequency} · {shortDate(item.startDate)}{item.category ? ` · ${item.category}` : ''}{item.subcategory ? ` › ${item.subcategory}` : ''}{section.key === 'recurringBills' ? billEndDate ? ` · Ends ${shortDate(toDateKey(billEndDate))}` : ' · No end date' : ''}</span>
                   {nextPayment && (
                     <div className={`income-payment-tracker ${pendingPayments ? 'income-payment-pending' : ''}`}>
-                      <span>{pendingPayments ? `${pendingPayments} payment${pendingPayments === 1 ? '' : 's'} pending` : 'Next expected payment'}</span>
-                      <button type="button" disabled={paused} title={`Add ${money(item.amount)} to current cash and advance this income schedule`} onClick={() => onReceiveIncome(section.key, item)}>
-                        Mark {shortDate(toDateKey(nextPayment))} paid
+                      <span>{pendingPayments ? `${pendingPayments} payment${pendingPayments === 1 ? '' : 's'} pending` : `Next expected ${item.type === 'income' ? 'payment' : 'bill'}`}</span>
+                      <button type="button" disabled={paused} title={item.type === 'income' ? 'Enter the actual amount received and advance this income schedule' : `Deduct this payment from current cash${item.trackBalance ? ' and the remaining balance' : ''}`} onClick={() => item.type === 'income' ? openIncomePayment(item, nextPayment) : onPayBill(section.key, item)}>
+                        {item.type === 'income' ? 'Mark' : 'Pay'} {shortDate(toDateKey(nextPayment))}
                       </button>
                     </div>
+                  )}
+                  {item.type === 'income' && incomeDraft?.itemId === item.id && (
+                    <div className="income-amount-confirm">
+                      <label>
+                        <span>Actual amount received</span>
+                        <div className="currency-input"><b>₱</b><input autoFocus type="number" min="0.01" step="0.01" value={incomeDraft.amount} onChange={(event) => setIncomeDraft((current) => ({ ...current, amount: event.target.value }))} /></div>
+                      </label>
+                      <button type="button" className="button-secondary button-small" onClick={() => setIncomeDraft(null)}>Cancel</button>
+                      <button type="button" className="button-primary button-small" disabled={!Number.isFinite(Number(incomeDraft.amount)) || Number(incomeDraft.amount) <= 0} onClick={() => confirmIncomePayment(item)}>Add to cash</button>
+                    </div>
+                  )}
+                  {section.key === 'recurringBills' && item.trackBalance && (
+                    <div className="bill-balance">
+                      <div><span>{money(paidAmount)} paid</span><strong>{money(remaining)} remaining</strong></div>
+                      <div className="bill-balance-track"><i style={{ width: `${paidPercent}%` }} /></div>
+                    </div>
+                  )}
+                  {section.key === 'oneOffIncome' && item.status === 'Paid' && item.actualAmount != null && (
+                    <div className="actual-payment-note">Actual received: {money(item.actualAmount)}</div>
                   )}
                 </div>
                 <strong className={item.type === 'income' ? 'positive-number' : ''}>{item.type === 'income' ? '+' : '−'}{money(item.amount)}</strong>
                 <div className="item-actions">
-                  <button className="icon-button" type="button" title={recurring ? (item.active === false ? 'Resume' : 'Pause') : (item.status === 'Paid' ? 'Mark unpaid' : 'Mark paid')} onClick={() => onToggle(section.key, item)}>
+                  <button className="icon-button" type="button" title={recurring ? (item.active === false ? 'Resume' : 'Pause') : (item.status === 'Paid' ? 'Mark unpaid' : 'Mark paid')} onClick={() => item.type === 'income' && item.status !== 'Paid' && nextPayment ? openIncomePayment(item, nextPayment) : onToggle(section.key, item)}>
                     {recurring ? (item.active === false ? '▶' : 'Ⅱ') : (item.status === 'Paid' ? '↺' : '✓')}
                   </button>
                   <button className="icon-button" type="button" title="Edit" onClick={() => onEdit(section.key, item)}><Icon name="edit" /></button>
@@ -435,20 +498,34 @@ function App() {
       ...form,
       id: editing?.id || `${form.section}-${Date.now()}`,
       amount: Number(form.amount),
-      type: form.section === 'recurringIncome' ? 'income' : 'expense',
+      type: form.section === 'recurringIncome' || form.section === 'oneOffIncome' ? 'income' : 'expense',
       frequency: form.section === 'recurringIncome' || form.section === 'recurringBills' ? form.frequency : 'One-Off',
     }
     delete item.section
     const recurring = form.section === 'recurringIncome' || form.section === 'recurringBills'
     if (recurring) delete item.status
     else delete item.active
-    if (form.section !== 'recurringIncome') delete item.paidThroughDate
     if (form.section === 'recurringBills') {
       item.endless = Boolean(form.endless)
       item.durationMonths = item.endless ? 0 : Math.max(1, Math.floor(Number(form.durationMonths) || 1))
+      item.trackBalance = Boolean(form.trackBalance)
+      if (item.trackBalance) {
+        item.totalAmount = Math.max(0, Number(form.totalAmount) || 0)
+        item.amountPaid = Math.min(item.totalAmount, Math.max(0, Number(form.amountPaid) || 0))
+        item.remainingAmount = Math.max(0, item.totalAmount - item.amountPaid)
+      } else {
+        delete item.totalAmount
+        delete item.amountPaid
+        delete item.remainingAmount
+      }
     } else {
       delete item.endless
       delete item.durationMonths
+      delete item.trackBalance
+      delete item.totalAmount
+      delete item.amountPaid
+      delete item.remainingAmount
+      if (form.section !== 'recurringIncome') delete item.paidThroughDate
     }
 
     setData((current) => {
@@ -461,22 +538,31 @@ function App() {
         const wasCashAdjusted = Boolean(existing?.cashAdjustedOnPaid)
         const willBePaid = item.status === 'Paid'
         let cashAdjustedOnPaid = false
+        let actualAmount = willBePaid ? Number(existing?.actualAmount ?? item.amount) || 0 : null
+        const direction = item.type === 'income' ? 1 : -1
 
         if (!existing && willBePaid) {
-          balance -= item.amount
+          balance += direction * actualAmount
           cashAdjustedOnPaid = true
         } else if (existing) {
           if (wasCashAdjusted) {
-            balance += Number(existing.amount) || 0
-            if (willBePaid) balance -= item.amount
+            const oldDirection = existing.type === 'income' ? 1 : -1
+            const oldAdjustment = Number(existing.cashAdjustmentAmount ?? existing.actualAmount ?? existing.amount) || 0
+            balance -= oldDirection * oldAdjustment
+            if (willBePaid) balance += direction * actualAmount
             cashAdjustedOnPaid = willBePaid
           } else if (!wasPaid && willBePaid) {
-            balance -= item.amount
+            actualAmount = item.amount
+            balance += direction * actualAmount
             cashAdjustedOnPaid = true
           }
         }
 
-        savedItem = { ...item, cashAdjustedOnPaid }
+        savedItem = {
+          ...item,
+          cashAdjustedOnPaid,
+          ...(willBePaid ? { actualAmount, cashAdjustmentAmount: actualAmount } : {}),
+        }
       }
 
       return {
@@ -514,28 +600,37 @@ function App() {
 
     const markingPaid = item.status !== 'Paid'
     const cashWasAdjusted = Boolean(item.cashAdjustedOnPaid)
+    const direction = item.type === 'income' ? 1 : -1
+    const actualAmount = Number(item.amount) || 0
+    if (markingPaid && item.type === 'income') return
+    const adjustmentAmount = Number(item.cashAdjustmentAmount ?? item.actualAmount ?? item.amount) || 0
     const prompt = markingPaid
       ? `Mark ${item.name} as paid and deduct ${money(item.amount)} from current cash?`
       : cashWasAdjusted
-        ? `Undo the paid status for ${item.name} and return ${money(item.amount)} to current cash?`
+        ? `Undo the paid status for ${item.name} and ${item.type === 'income' ? 'remove' : 'return'} ${money(adjustmentAmount)} ${item.type === 'income' ? 'from' : 'to'} current cash?`
         : `Mark ${item.name} as unpaid? Current cash will not change because this payment predates automatic cash tracking.`
-    if (!window.confirm(prompt)) return
+    if ((item.type !== 'income' || !markingPaid) && !window.confirm(prompt)) return
 
     setData((current) => ({
       ...current,
-      balance: (Number(current.balance) || 0) + (markingPaid ? -(Number(item.amount) || 0) : cashWasAdjusted ? (Number(item.amount) || 0) : 0),
+      balance: (Number(current.balance) || 0) + (markingPaid ? direction * actualAmount : cashWasAdjusted ? -direction * adjustmentAmount : 0),
       [section]: current[section].map((existing) => existing.id === item.id
-        ? { ...existing, status: markingPaid ? 'Paid' : 'Unpaid', cashAdjustedOnPaid: markingPaid }
+        ? {
+            ...existing,
+            status: markingPaid ? 'Paid' : 'Unpaid',
+            cashAdjustedOnPaid: markingPaid,
+            ...(markingPaid ? { actualAmount, cashAdjustmentAmount: actualAmount } : {}),
+          }
         : existing),
     }))
   }
 
-  const receiveIncome = (section, item) => {
+  const receiveIncome = (section, item, actualAmount) => {
     const expectedDate = nextExpectedOccurrence(item)
     if (!expectedDate || item.active === false) return
 
     const expectedDateKey = toDateKey(expectedDate)
-    if (!window.confirm(`Mark the ${shortDate(expectedDateKey)} payment from ${item.name} as received and add ${money(item.amount)} to current cash?`)) return
+    if (!Number.isFinite(actualAmount) || actualAmount <= 0) return
 
     setData((current) => {
       const currentItem = current[section].find((existing) => existing.id === item.id)
@@ -544,9 +639,52 @@ function App() {
 
       return {
         ...current,
-        balance: (Number(current.balance) || 0) + (Number(currentItem.amount) || 0),
+        balance: (Number(current.balance) || 0) + actualAmount,
         [section]: current[section].map((existing) => existing.id === item.id
-          ? { ...existing, paidThroughDate: expectedDateKey }
+          ? section === 'oneOffIncome'
+            ? { ...existing, status: 'Paid', cashAdjustedOnPaid: true, actualAmount, cashAdjustmentAmount: actualAmount }
+            : {
+                ...existing,
+                paidThroughDate: expectedDateKey,
+                lastReceivedAmount: actualAmount,
+                paymentHistory: [...(existing.paymentHistory || []), { scheduledDate: expectedDateKey, receivedDate: toDateKey(new Date()), amount: actualAmount }],
+              }
+          : existing),
+      }
+    })
+  }
+
+  const payBill = (section, item) => {
+    const expectedDate = nextExpectedOccurrence(item)
+    if (!expectedDate || item.active === false) return
+
+    const expectedDateKey = toDateKey(expectedDate)
+    const remaining = remainingBillBalance(item)
+    const paymentAmount = item.trackBalance ? Math.min(Number(item.amount) || 0, remaining) : Number(item.amount) || 0
+    if (paymentAmount <= 0) return
+    if (!window.confirm(`Pay the ${shortDate(expectedDateKey)} bill for ${item.name} and deduct ${money(paymentAmount)} from current cash${item.trackBalance ? ' and its remaining balance' : ''}?`)) return
+
+    setData((current) => {
+      const currentItem = current[section].find((existing) => existing.id === item.id)
+      const currentExpectedDate = nextExpectedOccurrence(currentItem)
+      if (!currentItem || !currentExpectedDate || toDateKey(currentExpectedDate) !== expectedDateKey) return current
+
+      const currentRemaining = remainingBillBalance(currentItem)
+      const currentPayment = currentItem.trackBalance ? Math.min(Number(currentItem.amount) || 0, currentRemaining) : Number(currentItem.amount) || 0
+      if (currentPayment <= 0) return current
+
+      return {
+        ...current,
+        balance: (Number(current.balance) || 0) - currentPayment,
+        [section]: current[section].map((existing) => existing.id === item.id
+          ? {
+              ...existing,
+              paidThroughDate: expectedDateKey,
+              ...(existing.trackBalance ? {
+                amountPaid: Math.min(Number(existing.totalAmount) || 0, (Number(existing.amountPaid) || 0) + currentPayment),
+                remainingAmount: Math.max(0, currentRemaining - currentPayment),
+              } : {}),
+            }
           : existing),
       }
     })
@@ -722,7 +860,7 @@ function App() {
             <GithubSyncPanel config={syncConfig} status={syncStatus} message={syncMessage} lastSyncedAt={lastSyncedAt} onConnect={connectGithub} onPull={pullGithubData} onPush={pushGithubData} onDisconnect={disconnectGithub} />
             <ItemForm form={form} setForm={setForm} editing={editing} onSubmit={submitItem} onCancel={() => { setEditing(null); setForm(emptyForm(form.section, data.settings.forecastStartDate)) }} />
             <div className="item-groups-grid">
-              {sections.map((section) => <ItemGroup key={section.key} section={section} items={data[section.key]} onEdit={editItem} onDelete={deleteItem} onToggle={toggleItem} onReceiveIncome={receiveIncome} />)}
+              {sections.map((section) => <ItemGroup key={section.key} section={section} items={data[section.key]} onEdit={editItem} onDelete={deleteItem} onToggle={toggleItem} onReceiveIncome={receiveIncome} onPayBill={payBill} />)}
             </div>
           </div>
         )}

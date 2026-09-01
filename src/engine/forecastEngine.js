@@ -67,8 +67,17 @@ export function recurringEndDate(item) {
   return addDays(addMonthsClamped(anchor, durationMonths), -1)
 }
 
+export function remainingBillBalance(item) {
+  if (!item?.trackBalance) return null
+  const total = Math.max(0, Number(item.totalAmount) || 0)
+  const paid = Math.max(0, Number(item.amountPaid) || 0)
+  const savedRemaining = Number(item.remainingAmount)
+  return Math.max(0, Number.isFinite(savedRemaining) ? savedRemaining : total - paid)
+}
+
 export function occursOnDate(item, date) {
   if (!item || item.active === false || (item.frequency === 'One-Off' && item.status === 'Paid')) return false
+  if (item.type === 'expense' && item.trackBalance && remainingBillBalance(item) <= 0) return false
 
   const anchor = parseLocalDate(item.startDate)
   if (!anchor || date < anchor) return false
@@ -76,7 +85,7 @@ export function occursOnDate(item, date) {
   const endDate = recurringEndDate(item)
   if (endDate && date > endDate) return false
 
-  const paidThrough = item.type === 'income' ? parseLocalDate(item.paidThroughDate) : null
+  const paidThrough = item.frequency !== 'One-Off' ? parseLocalDate(item.paidThroughDate) : null
   if (paidThrough && date <= paidThrough) return false
 
   const difference = calendarDayDifference(date, anchor)
@@ -100,14 +109,47 @@ export function occursOnDate(item, date) {
   }
 }
 
+function occurrenceNumber(item, date, startAfterPaidThrough) {
+  const anchor = parseLocalDate(item.startDate)
+  if (!anchor) return 0
+  const paidThrough = startAfterPaidThrough ? parseLocalDate(item.paidThroughDate) : null
+  let candidate = paidThrough && paidThrough >= anchor ? addDays(paidThrough, 1) : anchor
+  const scheduleItem = { ...item, active: true, status: 'Unpaid', paidThroughDate: '', trackBalance: false }
+  let count = 0
+
+  for (let guard = 0; candidate <= date && guard < 25000; guard += 1) {
+    if (occursOnDate(scheduleItem, candidate)) count += 1
+    candidate = addDays(candidate, 1)
+  }
+
+  return count
+}
+
+export function occurrenceAmount(item, date) {
+  const amount = Math.max(0, Number(item?.amount) || 0)
+  if (!item?.trackBalance || item.type !== 'expense') return amount
+  const remaining = remainingBillBalance(item)
+  const number = occurrenceNumber(item, date, true)
+  return number ? Math.min(amount, Math.max(0, remaining - amount * (number - 1))) : 0
+}
+
+export function scheduledOccurrenceAmount(item, date) {
+  const amount = Math.max(0, Number(item?.amount) || 0)
+  if (!item?.trackBalance || item.type !== 'expense') return amount
+  const total = Math.max(0, Number(item.totalAmount) || 0)
+  const number = occurrenceNumber(item, date, false)
+  return number ? Math.min(amount, Math.max(0, total - amount * (number - 1))) : 0
+}
+
 export function nextExpectedOccurrence(item) {
   const anchor = parseLocalDate(item?.startDate)
   if (!anchor) return null
+  if (item.type === 'expense' && item.trackBalance && remainingBillBalance(item) <= 0) return null
 
   const paidThrough = parseLocalDate(item.paidThroughDate)
-  if (!paidThrough || paidThrough < anchor) return anchor
-
   const scheduleItem = { ...item, active: true, status: 'Unpaid', paidThroughDate: '' }
+  if (!paidThrough || paidThrough < anchor) return occursOnDate(scheduleItem, anchor) ? anchor : null
+
   let candidate = addDays(paidThrough, 1)
 
   for (let offset = 0; offset < 800; offset += 1) {
@@ -123,8 +165,11 @@ export function pendingOccurrenceCount(item, throughDate = new Date()) {
   const scheduleItem = { ...item, active: true, status: 'Unpaid', paidThroughDate: '' }
   let occurrence = nextExpectedOccurrence(item)
   let count = 0
+  const paymentLimit = item.type === 'expense' && item.trackBalance
+    ? Math.ceil(remainingBillBalance(item) / Math.max(1, Number(item.amount) || 0))
+    : 1000
 
-  while (occurrence && occurrence <= end && count < 1000) {
+  while (occurrence && occurrence <= end && count < paymentLimit) {
     count += 1
     occurrence = nextExpectedOccurrence({ ...scheduleItem, paidThroughDate: toDateKey(occurrence) })
   }
@@ -148,7 +193,8 @@ export function generateDailyForecast({
     const startingBalance = cash
     const events = transactions
       .filter((item) => occursOnDate(item, date))
-      .map((item) => ({ ...item, amount: Number(item.amount) || 0 }))
+      .map((item) => ({ ...item, amount: occurrenceAmount(item, date) }))
+      .filter((item) => item.amount > 0)
 
     const income = events
       .filter((item) => item.type === 'income')
