@@ -5,12 +5,13 @@ import GithubSyncPanel from './components/GithubSyncPanel'
 import WeeklyForecast from './components/WeeklyForecast'
 import StatusBadge from './components/StatusBadge'
 import { financeData } from './data/financeData'
-import { generateDailyForecast, nextExpectedOccurrence, pendingOccurrenceCount, recurringEndDate, remainingBillBalance, toDateKey } from './engine/forecastEngine'
+import { generateDailyForecast, nextExpectedOccurrence, pendingOccurrenceCount, previousScheduledOccurrence, recurringEndDate, remainingBillBalance, toDateKey } from './engine/forecastEngine'
 import { DEFAULT_GITHUB_SYNC, loadGithubData, saveGithubData } from './services/githubSync'
 import { money, shortDate } from './utils/formatters'
 
 const STORAGE_KEY = 'cash-flow-planner-v2'
 const SYNC_CONFIG_KEY = 'cash-flow-github-sync-v1'
+const ITEM_SORTS_KEY = 'cash-flow-item-sorts-v1'
 
 const sections = [
   { key: 'recurringIncome', label: 'Recurring income', singular: 'income source', description: 'Expected income with payment tracking' },
@@ -56,6 +57,14 @@ function loadSyncConfig() {
     return parsed.token ? { ...DEFAULT_GITHUB_SYNC, ...parsed } : null
   } catch {
     return null
+  }
+}
+
+function loadItemSorts() {
+  try {
+    return JSON.parse(localStorage.getItem(ITEM_SORTS_KEY)) || {}
+  } catch {
+    return {}
   }
 }
 
@@ -277,8 +286,27 @@ function ItemForm({ form, setForm, editing, onSubmit, onCancel }) {
   )
 }
 
-function ItemGroup({ section, items, onEdit, onDelete, onToggle, onReceiveIncome, onPayBill }) {
+function ItemGroup({ section, items, sortBy, onSortChange, onEdit, onDelete, onToggle, onReceiveIncome, onUndoIncome, onPayBill }) {
   const [incomeDraft, setIncomeDraft] = useState(null)
+  const recurring = section.key === 'recurringIncome' || section.key === 'recurringBills'
+  const dateLabel = recurring ? 'Next date' : 'Due date'
+  const sortedItems = useMemo(() => [...items].sort((first, second) => {
+    const firstDate = recurring ? nextExpectedOccurrence(first) : null
+    const secondDate = recurring ? nextExpectedOccurrence(second) : null
+    const firstDateKey = recurring ? (firstDate ? toDateKey(firstDate) : '9999-12-31') : first.startDate || '9999-12-31'
+    const secondDateKey = recurring ? (secondDate ? toDateKey(secondDate) : '9999-12-31') : second.startDate || '9999-12-31'
+    const nameOrder = String(first.name || '').localeCompare(String(second.name || ''), undefined, { sensitivity: 'base' })
+
+    switch (sortBy) {
+      case 'dateDesc': return secondDateKey.localeCompare(firstDateKey) || nameOrder
+      case 'amountDesc': return (Number(second.amount) || 0) - (Number(first.amount) || 0) || nameOrder
+      case 'amountAsc': return (Number(first.amount) || 0) - (Number(second.amount) || 0) || nameOrder
+      case 'nameDesc': return -nameOrder
+      case 'categoryAsc': return String(first.category || 'Uncategorised').localeCompare(String(second.category || 'Uncategorised'), undefined, { sensitivity: 'base' }) || nameOrder
+      case 'dateAsc':
+      default: return firstDateKey.localeCompare(secondDateKey) || nameOrder
+    }
+  }), [items, recurring, sortBy])
 
   const openIncomePayment = (item, expectedDate) => {
     setIncomeDraft({ itemId: item.id, expectedDate: toDateKey(expectedDate), amount: String(item.amount) })
@@ -298,12 +326,25 @@ function ItemGroup({ section, items, onEdit, onDelete, onToggle, onReceiveIncome
           <h2>{section.label}</h2>
           <p>{section.description}</p>
         </div>
-        <span className="count-pill">{items.length}</span>
+        <div className="item-group-tools">
+          <label>
+            <span className="visually-hidden">Sort {section.label}</span>
+            <select value={sortBy} onChange={(event) => onSortChange(event.target.value)} aria-label={`Sort ${section.label}`}>
+              <option value="dateAsc">{dateLabel}: soonest</option>
+              <option value="dateDesc">{dateLabel}: latest</option>
+              <option value="amountDesc">Amount: high to low</option>
+              <option value="amountAsc">Amount: low to high</option>
+              <option value="nameAsc">Name: A to Z</option>
+              <option value="nameDesc">Name: Z to A</option>
+              <option value="categoryAsc">Category: A to Z</option>
+            </select>
+          </label>
+          <span className="count-pill">{items.length}</span>
+        </div>
       </div>
       {items.length ? (
         <div className="item-list">
-          {items.map((item) => {
-            const recurring = section.key === 'recurringIncome' || section.key === 'recurringBills'
+          {sortedItems.map((item) => {
             const paused = recurring ? item.active === false : item.status === 'Paid'
             const paymentTracked = item.type === 'income' || section.key === 'recurringBills'
             const nextPayment = paymentTracked && item.status !== 'Paid' ? nextExpectedOccurrence(item) : null
@@ -313,6 +354,9 @@ function ItemGroup({ section, items, onEdit, onDelete, onToggle, onReceiveIncome
             const paidOff = item.trackBalance && remaining <= 0
             const paidAmount = item.trackBalance ? Math.max(0, Number(item.totalAmount) - remaining) : 0
             const paidPercent = item.trackBalance && Number(item.totalAmount) > 0 ? Math.min(100, (paidAmount / Number(item.totalAmount)) * 100) : 0
+            const latestIncomePayment = section.key === 'recurringIncome' ? item.paymentHistory?.at(-1) : null
+            const lastIncomeDate = latestIncomePayment?.scheduledDate || (section.key === 'recurringIncome' ? item.paidThroughDate : '')
+            const lastIncomeAmount = latestIncomePayment?.amount ?? item.lastReceivedAmount ?? item.amount
             return (
               <article className={`item-row ${paused ? 'item-paused' : ''}`} key={item.id}>
                 <div className={`item-avatar ${item.type === 'income' ? 'avatar-income' : 'avatar-expense'}`}>{item.name.slice(0, 1).toUpperCase()}</div>
@@ -340,6 +384,12 @@ function ItemGroup({ section, items, onEdit, onDelete, onToggle, onReceiveIncome
                       </label>
                       <button type="button" className="button-secondary button-small" onClick={() => setIncomeDraft(null)}>Cancel</button>
                       <button type="button" className="button-primary button-small" disabled={!Number.isFinite(Number(incomeDraft.amount)) || Number(incomeDraft.amount) <= 0} onClick={() => confirmIncomePayment(item)}>Add to cash</button>
+                    </div>
+                  )}
+                  {lastIncomeDate && (
+                    <div className="income-last-payment">
+                      <span>Last received {shortDate(lastIncomeDate)} · {money(lastIncomeAmount)}</span>
+                      <button type="button" onClick={() => onUndoIncome(section.key, item)}>Undo last payment</button>
                     </div>
                   )}
                   {section.key === 'recurringBills' && item.trackBalance && (
@@ -378,6 +428,7 @@ function App() {
   const [syncStatus, setSyncStatus] = useState(syncConfig ? 'connecting' : 'disconnected')
   const [syncMessage, setSyncMessage] = useState('')
   const [lastSyncedAt, setLastSyncedAt] = useState('')
+  const [itemSorts, setItemSorts] = useState(loadItemSorts)
   const importInputRef = useRef(null)
   const dataRef = useRef(data)
   const syncShaRef = useRef(null)
@@ -390,6 +441,10 @@ function App() {
     dataRef.current = data
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
   }, [data])
+
+  useEffect(() => {
+    localStorage.setItem(ITEM_SORTS_KEY, JSON.stringify(itemSorts))
+  }, [itemSorts])
 
   useEffect(() => {
     if (!syncConfig?.token || syncReadyRef.current) return undefined
@@ -647,8 +702,45 @@ function App() {
                 ...existing,
                 paidThroughDate: expectedDateKey,
                 lastReceivedAmount: actualAmount,
-                paymentHistory: [...(existing.paymentHistory || []), { scheduledDate: expectedDateKey, receivedDate: toDateKey(new Date()), amount: actualAmount }],
+                paymentHistory: [...(existing.paymentHistory || []), { scheduledDate: expectedDateKey, previousPaidThroughDate: existing.paidThroughDate || '', receivedDate: toDateKey(new Date()), amount: actualAmount }],
               }
+          : existing),
+      }
+    })
+  }
+
+  const undoIncome = (section, item) => {
+    const history = item.paymentHistory || []
+    const latestPayment = history.at(-1)
+    const paidDateKey = latestPayment?.scheduledDate || item.paidThroughDate
+    if (!paidDateKey) return
+
+    const amountToReverse = Number(latestPayment?.amount ?? item.lastReceivedAmount ?? item.amount) || 0
+    if (!window.confirm(`Undo the ${shortDate(paidDateKey)} payment from ${item.name} and remove ${money(amountToReverse)} from current cash?`)) return
+
+    setData((current) => {
+      const currentItem = current[section].find((existing) => existing.id === item.id)
+      if (!currentItem || currentItem.paidThroughDate !== paidDateKey) return current
+
+      const currentHistory = currentItem.paymentHistory || []
+      const currentLatest = currentHistory.at(-1)
+      const remainingHistory = currentHistory.slice(0, -1)
+      const previousOccurrence = previousScheduledOccurrence(currentItem, paidDateKey)
+      const previousPaidThroughDate = currentLatest?.previousPaidThroughDate
+        ?? remainingHistory.at(-1)?.scheduledDate
+        ?? (previousOccurrence ? toDateKey(previousOccurrence) : '')
+      const currentAmount = Number(currentLatest?.amount ?? currentItem.lastReceivedAmount ?? currentItem.amount) || 0
+
+      return {
+        ...current,
+        balance: (Number(current.balance) || 0) - currentAmount,
+        [section]: current[section].map((existing) => existing.id === item.id
+          ? {
+              ...existing,
+              paidThroughDate: previousPaidThroughDate,
+              paymentHistory: remainingHistory,
+              lastReceivedAmount: remainingHistory.at(-1)?.amount ?? null,
+            }
           : existing),
       }
     })
@@ -860,7 +952,7 @@ function App() {
             <GithubSyncPanel config={syncConfig} status={syncStatus} message={syncMessage} lastSyncedAt={lastSyncedAt} onConnect={connectGithub} onPull={pullGithubData} onPush={pushGithubData} onDisconnect={disconnectGithub} />
             <ItemForm form={form} setForm={setForm} editing={editing} onSubmit={submitItem} onCancel={() => { setEditing(null); setForm(emptyForm(form.section, data.settings.forecastStartDate)) }} />
             <div className="item-groups-grid">
-              {sections.map((section) => <ItemGroup key={section.key} section={section} items={data[section.key]} onEdit={editItem} onDelete={deleteItem} onToggle={toggleItem} onReceiveIncome={receiveIncome} onPayBill={payBill} />)}
+              {sections.map((section) => <ItemGroup key={section.key} section={section} items={data[section.key]} sortBy={itemSorts[section.key] || 'dateAsc'} onSortChange={(sortBy) => setItemSorts((current) => ({ ...current, [section.key]: sortBy }))} onEdit={editItem} onDelete={deleteItem} onToggle={toggleItem} onReceiveIncome={receiveIncome} onUndoIncome={undoIncome} onPayBill={payBill} />)}
             </div>
           </div>
         )}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { generateWeeklyForecast } from '../engine/forecastEngine'
 import { dateRange, money, shortDate } from '../utils/formatters'
 import StatusBadge from './StatusBadge'
@@ -117,19 +117,27 @@ function WeeklyForecast({ forecast, dailyForecast, minimumBuffer }) {
               </tr>
             </thead>
             <tbody>
-              {weeks.map((week) => (
-                <tr className={`forecast-clickable-row ${selection?.view === 'weekly' && selection.key === week.week ? 'forecast-row-selected' : ''}`} key={week.week} tabIndex="0" aria-selected={selection?.view === 'weekly' && selection.key === week.week} onClick={() => toggleSelection({ view: 'weekly', key: week.week })} onKeyDown={(event) => handleRowKey(event, { view: 'weekly', key: week.week })}>
-                  <td><strong>{String(week.week).padStart(2, '0')}</strong></td>
-                  <td>{dateRange(week.start, week.end)}</td>
-                  <td className="number-cell">{money(week.openingBalance)}</td>
-                  <td className="number-cell positive-number">{money(week.income)}</td>
-                  <td className="number-cell negative-number">{money(week.expenses)}</td>
-                  <td className="number-cell"><strong>{money(week.closingBalance)}</strong></td>
-                  <td className="number-cell">{money(week.lowestBalance)}</td>
-                  <td><StatusBadge status={week.status} /></td>
-                  <td>{week.firstRiskDate ? shortDate(week.firstRiskDate) : '—'}</td>
-                </tr>
-              ))}
+              {weeks.map((week) => {
+                const isSelected = selection?.view === 'weekly' && selection.key === week.week
+                return (
+                  <Fragment key={week.week}>
+                    <tr className={`forecast-clickable-row ${isSelected ? 'forecast-row-selected' : ''}`} tabIndex="0" aria-selected={isSelected} onClick={() => toggleSelection({ view: 'weekly', key: week.week })} onKeyDown={(event) => handleRowKey(event, { view: 'weekly', key: week.week })}>
+                      <td><strong>{String(week.week).padStart(2, '0')}</strong></td>
+                      <td>{dateRange(week.start, week.end)}</td>
+                      <td className="number-cell">{money(week.openingBalance)}</td>
+                      <td className="number-cell positive-number">{money(week.income)}</td>
+                      <td className="number-cell negative-number">{money(week.expenses)}</td>
+                      <td className="number-cell"><strong>{money(week.closingBalance)}</strong></td>
+                      <td className="number-cell">{money(week.lowestBalance)}</td>
+                      <td><StatusBadge status={week.status} /></td>
+                      <td>{week.firstRiskDate ? shortDate(week.firstRiskDate) : '—'}</td>
+                    </tr>
+                    {isSelected && selectedDays.length > 0 && (
+                      <tr className="forecast-breakdown-row"><td colSpan="9"><ForecastBreakdown title={selectedTitle} period={selectedPeriod} days={selectedDays} onClose={() => setSelection(null)} /></td></tr>
+                    )}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -153,25 +161,30 @@ function WeeklyForecast({ forecast, dailyForecast, minimumBuffer }) {
               {days.map((day, index) => {
                 const netChange = day.income - day.expenses
                 const activity = day.events.map((event) => event.name).join(', ')
+                const isSelected = selection?.view === 'daily' && selection.key === day.date
                 return (
-                  <tr className={`forecast-clickable-row ${selection?.view === 'daily' && selection.key === day.date ? 'forecast-row-selected' : ''}`} key={day.date} tabIndex="0" aria-selected={selection?.view === 'daily' && selection.key === day.date} onClick={() => toggleSelection({ view: 'daily', key: day.date })} onKeyDown={(event) => handleRowKey(event, { view: 'daily', key: day.date })}>
-                    <td><strong>{String(index + 1).padStart(2, '0')}</strong></td>
-                    <td><span className="daily-date"><strong>{weekday(day.date)}</strong>{shortDate(day.date)}</span></td>
-                    <td className="activity-cell" title={activity || 'No scheduled activity'}>{activity || '—'}</td>
-                    <td className="number-cell">{money(day.startingBalance)}</td>
-                    <td className="number-cell positive-number">{day.income ? money(day.income) : '—'}</td>
-                    <td className="number-cell negative-number">{day.expenses ? money(day.expenses) : '—'}</td>
-                    <td className={`number-cell ${netChange > 0 ? 'positive-number' : netChange < 0 ? 'negative-number' : ''}`}>{netChange ? money(netChange) : '—'}</td>
-                    <td className="number-cell"><strong>{money(day.balance)}</strong></td>
-                    <td><StatusBadge status={day.status} /></td>
-                  </tr>
+                  <Fragment key={day.date}>
+                    <tr className={`forecast-clickable-row ${isSelected ? 'forecast-row-selected' : ''}`} tabIndex="0" aria-selected={isSelected} onClick={() => toggleSelection({ view: 'daily', key: day.date })} onKeyDown={(event) => handleRowKey(event, { view: 'daily', key: day.date })}>
+                      <td><strong>{String(index + 1).padStart(2, '0')}</strong></td>
+                      <td><span className="daily-date"><strong>{weekday(day.date)}</strong>{shortDate(day.date)}</span></td>
+                      <td className="activity-cell" title={activity || 'No scheduled activity'}>{activity || '—'}</td>
+                      <td className="number-cell">{money(day.startingBalance)}</td>
+                      <td className="number-cell positive-number">{day.income ? money(day.income) : '—'}</td>
+                      <td className="number-cell negative-number">{day.expenses ? money(day.expenses) : '—'}</td>
+                      <td className={`number-cell ${netChange > 0 ? 'positive-number' : netChange < 0 ? 'negative-number' : ''}`}>{netChange ? money(netChange) : '—'}</td>
+                      <td className="number-cell"><strong>{money(day.balance)}</strong></td>
+                      <td><StatusBadge status={day.status} /></td>
+                    </tr>
+                    {isSelected && selectedDays.length > 0 && (
+                      <tr className="forecast-breakdown-row"><td colSpan="9"><ForecastBreakdown title={selectedTitle} period={selectedPeriod} days={selectedDays} onClose={() => setSelection(null)} /></td></tr>
+                    )}
+                  </Fragment>
                 )
               })}
             </tbody>
           </table>
         </div>
       )}
-      {selection && selectedDays.length > 0 && <ForecastBreakdown title={selectedTitle} period={selectedPeriod} days={selectedDays} onClose={() => setSelection(null)} />}
     </section>
   )
 }

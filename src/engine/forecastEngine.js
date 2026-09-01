@@ -160,6 +160,23 @@ export function nextExpectedOccurrence(item) {
   return null
 }
 
+export function previousScheduledOccurrence(item, beforeDate) {
+  const anchor = parseLocalDate(item?.startDate)
+  const target = parseLocalDate(beforeDate)
+  if (!anchor || !target || target <= anchor) return null
+
+  const scheduleItem = { ...item, active: true, status: 'Unpaid', paidThroughDate: '', trackBalance: false }
+  let candidate = anchor
+  let previous = null
+
+  for (let guard = 0; candidate < target && guard < 25000; guard += 1) {
+    if (occursOnDate(scheduleItem, candidate)) previous = new Date(candidate)
+    candidate = addDays(candidate, 1)
+  }
+
+  return previous
+}
+
 export function pendingOccurrenceCount(item, throughDate = new Date()) {
   const end = new Date(throughDate.getFullYear(), throughDate.getMonth(), throughDate.getDate())
   const scheduleItem = { ...item, active: true, status: 'Unpaid', paidThroughDate: '' }
