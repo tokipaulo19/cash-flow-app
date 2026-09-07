@@ -320,7 +320,7 @@ function ItemGroup({ section, items, sortBy, onSortChange, onEdit, onDelete, onT
   }
 
   return (
-    <section className="panel item-group">
+    <div className="item-group">
       <div className="item-group-heading">
         <div>
           <h2>{section.label}</h2>
@@ -415,6 +415,32 @@ function ItemGroup({ section, items, sortBy, onSortChange, onEdit, onDelete, onT
           })}
         </div>
       ) : <div className="empty-state"><span>＋</span><p>No {section.label.toLowerCase()} yet.</p></div>}
+    </div>
+  )
+}
+
+function ItemCollection({ title, description, sectionKeys, activeKey, onActiveChange, data, itemSorts, onSortChange, onEdit, onDelete, onToggle, onReceiveIncome, onUndoIncome, onPayBill }) {
+  const tabLabels = { recurringIncome: 'Recurring', oneOffIncome: 'One-off', recurringBills: 'Recurring bills', variableExpenses: 'Variable', oneOffBills: 'One-off' }
+  const collectionSections = sectionKeys.map((key) => sections.find((section) => section.key === key))
+  const activeSection = collectionSections.find((section) => section.key === activeKey) || collectionSections[0]
+  const totalItems = collectionSections.reduce((total, section) => total + data[section.key].length, 0)
+
+  return (
+    <section className="panel item-collection">
+      <div className="panel-heading item-collection-heading">
+        <div><span className="eyebrow">Cash items</span><h2>{title}</h2><p>{description}</p></div>
+        <span className="panel-meta">{totalItems} total</span>
+      </div>
+      <div className="item-section-tabs" role="tablist" aria-label={`${title} types`}>
+        {collectionSections.map((section) => (
+          <button key={section.key} type="button" role="tab" aria-selected={activeSection.key === section.key} className={activeSection.key === section.key ? 'item-section-tab-active' : ''} onClick={() => onActiveChange(section.key)}>
+            {tabLabels[section.key]}<span>{data[section.key].length}</span>
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel" aria-label={activeSection.label}>
+        <ItemGroup section={activeSection} items={data[activeSection.key]} sortBy={itemSorts[activeSection.key] || 'dateAsc'} onSortChange={(sortBy) => onSortChange(activeSection.key, sortBy)} onEdit={onEdit} onDelete={onDelete} onToggle={onToggle} onReceiveIncome={onReceiveIncome} onUndoIncome={onUndoIncome} onPayBill={onPayBill} />
+      </div>
     </section>
   )
 }
@@ -429,6 +455,8 @@ function App() {
   const [syncMessage, setSyncMessage] = useState('')
   const [lastSyncedAt, setLastSyncedAt] = useState('')
   const [itemSorts, setItemSorts] = useState(loadItemSorts)
+  const [incomeListTab, setIncomeListTab] = useState('recurringIncome')
+  const [expenseListTab, setExpenseListTab] = useState('recurringBills')
   const importInputRef = useRef(null)
   const dataRef = useRef(data)
   const syncShaRef = useRef(null)
@@ -630,6 +658,8 @@ function App() {
     })
     setEditing(null)
     setForm(emptyForm(form.section, data.settings.forecastStartDate))
+    if (form.section === 'recurringIncome' || form.section === 'oneOffIncome') setIncomeListTab(form.section)
+    else setExpenseListTab(form.section)
   }
 
   const editItem = (section, item) => {
@@ -951,8 +981,9 @@ function App() {
             <SettingsPanel data={data} setData={setData} onExport={exportData} onImport={() => importInputRef.current?.click()} />
             <GithubSyncPanel config={syncConfig} status={syncStatus} message={syncMessage} lastSyncedAt={lastSyncedAt} onConnect={connectGithub} onPull={pullGithubData} onPush={pushGithubData} onDisconnect={disconnectGithub} />
             <ItemForm form={form} setForm={setForm} editing={editing} onSubmit={submitItem} onCancel={() => { setEditing(null); setForm(emptyForm(form.section, data.settings.forecastStartDate)) }} />
-            <div className="item-groups-grid">
-              {sections.map((section) => <ItemGroup key={section.key} section={section} items={data[section.key]} sortBy={itemSorts[section.key] || 'dateAsc'} onSortChange={(sortBy) => setItemSorts((current) => ({ ...current, [section.key]: sortBy }))} onEdit={editItem} onDelete={deleteItem} onToggle={toggleItem} onReceiveIncome={receiveIncome} onUndoIncome={undoIncome} onPayBill={payBill} />)}
+            <div className="item-collections-grid">
+              <ItemCollection title="Income" description="Switch between repeating and single income payments." sectionKeys={['recurringIncome', 'oneOffIncome']} activeKey={incomeListTab} onActiveChange={setIncomeListTab} data={data} itemSorts={itemSorts} onSortChange={(section, sortBy) => setItemSorts((current) => ({ ...current, [section]: sortBy }))} onEdit={editItem} onDelete={deleteItem} onToggle={toggleItem} onReceiveIncome={receiveIncome} onUndoIncome={undoIncome} onPayBill={payBill} />
+              <ItemCollection title="Expenses" description="Review recurring, variable and one-off expenses separately." sectionKeys={['recurringBills', 'variableExpenses', 'oneOffBills']} activeKey={expenseListTab} onActiveChange={setExpenseListTab} data={data} itemSorts={itemSorts} onSortChange={(section, sortBy) => setItemSorts((current) => ({ ...current, [section]: sortBy }))} onEdit={editItem} onDelete={deleteItem} onToggle={toggleItem} onReceiveIncome={receiveIncome} onUndoIncome={undoIncome} onPayBill={payBill} />
             </div>
           </div>
         )}
