@@ -161,6 +161,21 @@ button { cursor: pointer; }
 .event-amount.event-expense { color: #c94e0c; }
 .empty-copy { color: var(--muted); font-size: 13px; }
 
+.recent-transaction-list { display: grid; }
+.recent-transaction-row { display: grid; grid-template-columns: 92px 8px minmax(0, 1fr) auto 120px; align-items: center; gap: 12px; padding: 13px 0; border-top: 1px solid #dcd9d3; }
+.recent-transaction-row:first-child { border-top: 0; padding-top: 2px; }
+.recent-transaction-date { color: #686869; font-size: 11px; font-weight: 650; }
+.recent-transaction-mark { width: 7px; height: 30px; border-radius: 99px; background: #9a9a9a; }
+.recent-transaction-mark.transaction-income { background: #18191b; }
+.recent-transaction-mark.transaction-expense { background: #f36a21; }
+.recent-transaction-copy { min-width: 0; }
+.recent-transaction-copy strong, .recent-transaction-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-transaction-copy strong { color: #18191b; font-size: 13px; }
+.recent-transaction-copy span { margin-top: 3px; color: #777778; font-size: 10px; }
+.recent-transaction-status { border-radius: 99px; padding: 5px 8px; color: #5f5f60; background: #dedbd5; font-size: 8px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.recent-transaction-status.transaction-expense { color: #71300e; background: #fbd2bc; }
+.recent-transaction-amount { font-size: 12px; text-align: right; white-space: nowrap; }
+
 .insight-card { display: flex; align-items: center; gap: 14px; padding: 17px 20px; border: 1px solid #f3b28f; border-radius: 13px; background: #fde7dc; }
 .insight-icon { display: grid; flex: 0 0 28px; height: 28px; place-items: center; border-radius: 50%; color: #fff; background: var(--coral); font-weight: 800; }
 .insight-card strong { color: #5f290d; font-size: 13px; }
@@ -522,6 +537,9 @@ input:focus, select:focus { border-color: #f36a21; background: #fffdfa; box-shad
   .balance-fields { grid-template-columns: 1fr; }
   .income-amount-confirm { grid-template-columns: 1fr 1fr; }
   .income-amount-confirm label { grid-column: span 2; }
+  .recent-transaction-row { grid-template-columns: 76px 7px minmax(0, 1fr) auto; gap: 9px; }
+  .recent-transaction-status { display: none; }
+  .recent-transaction-amount { grid-column: 3 / -1; }
   .category-report-body { grid-template-columns: 170px minmax(0, 1fr); gap: 18px; padding-inline: 0; }
   .donut-chart { width: 160px; }
   .donut-chart > div { width: 96px; }

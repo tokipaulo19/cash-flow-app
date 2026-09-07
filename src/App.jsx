@@ -21,6 +21,32 @@ const sections = [
   { key: 'oneOffBills', label: 'One-off bills', singular: 'one-off bill', description: 'Irregular bills with a single due date' },
 ]
 
+function buildRecentTransactions(data) {
+  const transactions = []
+  const add = (item, section, type, amount, date, recordedAt, id) => {
+    if (!date || !(Number(amount) > 0)) return
+    transactions.push({ id, name: item.name, category: item.category, subcategory: item.subcategory, section, type, amount: Number(amount), date, recordedAt: recordedAt || `${date}T12:00:00` })
+  }
+
+  ;(data.recurringIncome || []).forEach((item) => {
+    const history = item.paymentHistory || []
+    history.forEach((payment, index) => add(item, 'Recurring income', 'income', payment.amount, payment.receivedDate || payment.scheduledDate, payment.recordedAt, `${item.id}-income-${index}`))
+    if (!history.length && item.paidThroughDate) add(item, 'Recurring income', 'income', item.lastReceivedAmount || item.amount, item.paidThroughDate, null, `${item.id}-income-legacy`)
+  })
+  ;(data.oneOffIncome || []).filter((item) => item.status === 'Paid').forEach((item) => add(item, 'One-off income', 'income', item.actualAmount || item.amount, item.paidAt?.slice(0, 10) || item.startDate, item.paidAt, `${item.id}-income`))
+  ;(data.recurringBills || []).forEach((item) => {
+    const history = item.paymentHistory || []
+    history.forEach((payment, index) => add(item, 'Recurring bill', 'expense', payment.amount, payment.paidDate || payment.scheduledDate, payment.recordedAt, `${item.id}-bill-${index}`))
+    if (!history.length && item.paidThroughDate) add(item, 'Recurring bill', 'expense', item.amount, item.paidThroughDate, null, `${item.id}-bill-legacy`)
+  })
+  ;['variableExpenses', 'oneOffBills'].forEach((sectionKey) => {
+    const section = sectionKey === 'variableExpenses' ? 'Variable expense' : 'One-off bill'
+    ;(data[sectionKey] || []).filter((item) => item.status === 'Paid').forEach((item) => add(item, section, 'expense', item.cashAdjustmentAmount || item.amount, item.paidAt?.slice(0, 10) || item.startDate, item.paidAt, `${item.id}-expense`))
+  })
+
+  return transactions.sort((first, second) => second.recordedAt.localeCompare(first.recordedAt)).slice(0, 20)
+}
+
 function cloneDefaultData() {
   return JSON.parse(JSON.stringify(financeData))
 }
@@ -567,6 +593,7 @@ function App() {
     : forecast.some((day) => day.balance < data.settings.minimumBuffer)
       ? 'TIGHT'
       : 'SAFE'
+  const recentTransactions = useMemo(() => buildRecentTransactions(data), [data])
 
   const openNewItem = (section = 'recurringIncome') => {
     setEditing(null)
@@ -577,6 +604,7 @@ function App() {
 
   const submitItem = (event) => {
     event.preventDefault()
+    const recordedAt = new Date().toISOString()
     const item = {
       ...form,
       id: editing?.id || `${form.section}-${Date.now()}`,
@@ -644,6 +672,7 @@ function App() {
         savedItem = {
           ...item,
           cashAdjustedOnPaid,
+          paidAt: willBePaid ? existing?.paidAt || recordedAt : null,
           ...(willBePaid ? { actualAmount, cashAdjustmentAmount: actualAmount } : {}),
         }
       }
@@ -704,6 +733,7 @@ function App() {
             ...existing,
             status: markingPaid ? 'Paid' : 'Unpaid',
             cashAdjustedOnPaid: markingPaid,
+            paidAt: markingPaid ? new Date().toISOString() : null,
             ...(markingPaid ? { actualAmount, cashAdjustmentAmount: actualAmount } : {}),
           }
         : existing),
@@ -727,12 +757,12 @@ function App() {
         balance: (Number(current.balance) || 0) + actualAmount,
         [section]: current[section].map((existing) => existing.id === item.id
           ? section === 'oneOffIncome'
-            ? { ...existing, status: 'Paid', cashAdjustedOnPaid: true, actualAmount, cashAdjustmentAmount: actualAmount }
+            ? { ...existing, status: 'Paid', cashAdjustedOnPaid: true, actualAmount, cashAdjustmentAmount: actualAmount, paidAt: new Date().toISOString() }
             : {
                 ...existing,
                 paidThroughDate: expectedDateKey,
                 lastReceivedAmount: actualAmount,
-                paymentHistory: [...(existing.paymentHistory || []), { scheduledDate: expectedDateKey, previousPaidThroughDate: existing.paidThroughDate || '', receivedDate: toDateKey(new Date()), amount: actualAmount }],
+                paymentHistory: [...(existing.paymentHistory || []), { scheduledDate: expectedDateKey, previousPaidThroughDate: existing.paidThroughDate || '', receivedDate: toDateKey(new Date()), recordedAt: new Date().toISOString(), amount: actualAmount }],
               }
           : existing),
       }
@@ -802,6 +832,7 @@ function App() {
           ? {
               ...existing,
               paidThroughDate: expectedDateKey,
+              paymentHistory: [...(existing.paymentHistory || []), { scheduledDate: expectedDateKey, paidDate: toDateKey(new Date()), recordedAt: new Date().toISOString(), amount: currentPayment }],
               ...(existing.trackBalance ? {
                 amountPaid: Math.min(Number(existing.totalAmount) || 0, (Number(existing.amountPaid) || 0) + currentPayment),
                 remainingAmount: Math.max(0, currentRemaining - currentPayment),
@@ -974,7 +1005,7 @@ function App() {
           <button className="button-primary add-top-button" type="button" onClick={() => openNewItem(view === 'report' ? 'variableExpenses' : 'recurringIncome')}><Icon name="plus" />{view === 'report' ? 'Add expense' : 'Add item'}</button>
         </header>
 
-        {view === 'overview' && <Dashboard balance={data.balance} forecast={forecast} minimumBuffer={data.settings.minimumBuffer} />}
+        {view === 'overview' && <Dashboard balance={data.balance} forecast={forecast} minimumBuffer={data.settings.minimumBuffer} recentTransactions={recentTransactions} />}
 
         {view === 'items' && (
           <div className="items-stack">

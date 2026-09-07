@@ -57,7 +57,7 @@ function MetricCard({ label, value, note, tone = 'default' }) {
   )
 }
 
-function Dashboard({ balance, forecast, minimumBuffer }) {
+function Dashboard({ balance, forecast, minimumBuffer, recentTransactions = [] }) {
   const next30Days = forecast.slice(0, 30)
   const monthIncome = next30Days.reduce((sum, day) => sum + day.income, 0)
   const monthExpenses = next30Days.reduce((sum, day) => sum + day.expenses, 0)
@@ -137,6 +137,33 @@ function Dashboard({ balance, forecast, minimumBuffer }) {
           </div>
         </article>
       </section>
+
+      <article className="panel recent-transactions-panel">
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">Confirmed activity</span>
+            <h2>Recent transactions</h2>
+            <p>Latest income received and expenses paid.</p>
+          </div>
+          <span className="panel-meta">Last {Math.min(recentTransactions.length, 20)}</span>
+        </div>
+        {recentTransactions.length ? (
+          <div className="recent-transaction-list">
+            {recentTransactions.map((transaction) => (
+              <div className="recent-transaction-row" key={transaction.id}>
+                <span className="recent-transaction-date">{shortDate(transaction.date)}</span>
+                <i className={`recent-transaction-mark transaction-${transaction.type}`} aria-hidden="true" />
+                <div className="recent-transaction-copy">
+                  <strong>{transaction.name}</strong>
+                  <span>{transaction.section}{transaction.category ? ` · ${transaction.category}` : ''}{transaction.subcategory ? ` › ${transaction.subcategory}` : ''}</span>
+                </div>
+                <span className={`recent-transaction-status transaction-${transaction.type}`}>{transaction.type === 'income' ? 'Received' : 'Paid'}</span>
+                <strong className={`recent-transaction-amount ${transaction.type === 'income' ? 'positive-number' : 'negative-number'}`}>{transaction.type === 'income' ? '+' : '−'}{money(transaction.amount)}</strong>
+              </div>
+            ))}
+          </div>
+        ) : <p className="empty-copy">Confirmed payments will appear here after you mark income as received or an expense as paid.</p>}
+      </article>
 
       {trigger?.length > 0 && (
         <section className="insight-card">
