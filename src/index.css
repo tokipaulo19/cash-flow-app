@@ -391,6 +391,26 @@ input:focus, select:focus { border-color: #f36a21; background: #fffdfa; box-shad
 .report-metrics .metric-value { font-size: clamp(19px, 2vw, 26px); }
 .report-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, .75fr); gap: 20px; }
 
+.expense-group-heading { align-items: flex-end; }
+.expense-group-heading p { max-width: 620px; margin: 6px 0 0; color: #686869; font-size: 11px; line-height: 1.5; }
+.expense-group-search { display: grid; width: min(380px, 100%); flex: none; gap: 6px; }
+.expense-group-search > span { color: #686869; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.expense-group-search > div { position: relative; }
+.expense-group-search input { width: 100%; height: 42px; padding-right: 39px; border: 1px solid #bdbab4; border-radius: 9px; background: #fffdfa; font-size: 11px; }
+.expense-group-search input:focus { border-color: #f36a21; box-shadow: 0 0 0 3px rgba(243,106,33,.15); outline: 0; }
+.expense-group-search button { position: absolute; top: 50%; right: 8px; width: 27px; height: 27px; border: 0; border-radius: 7px; color: #686869; background: #ece9e3; cursor: pointer; transform: translateY(-50%); font-size: 18px; line-height: 1; }
+.expense-group-prompt { margin: 4px 0 0; padding: 23px; border: 1px dashed #bdbab4; border-radius: 11px; color: #686869; background: #ece9e3; font-size: 11px; text-align: center; }
+.expense-group-summary { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 4px; padding: 12px 15px; border-radius: 9px; color: #686869; background: #ece9e3; font-size: 11px; }
+.expense-group-summary strong { color: #18191b; }
+.expense-group-list { display: grid; max-height: 520px; overflow: auto; }
+.expense-group-row { display: grid; grid-template-columns: 100px minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 14px 5px; border-top: 1px solid #dcd9d3; }
+.expense-group-row time { color: #686869; font-size: 10px; font-weight: 700; }
+.expense-group-row > div { min-width: 0; }
+.expense-group-row > div strong, .expense-group-row > div span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.expense-group-row > div strong { color: #18191b; font-size: 12px; }
+.expense-group-row > div span { margin-top: 4px; color: #777778; font-size: 9px; }
+.expense-group-row > strong { color: #18191b; font-size: 12px; font-variant-numeric: tabular-nums; }
+
 .budget-heading { align-items: center; }
 .budget-actions { display: flex; align-items: center; gap: 8px; }
 .budget-actions label { width: 190px; }
@@ -540,6 +560,9 @@ input:focus, select:focus { border-color: #f36a21; background: #fffdfa; box-shad
   .recent-transaction-row { grid-template-columns: 76px 7px minmax(0, 1fr) auto; gap: 9px; }
   .recent-transaction-status { display: none; }
   .recent-transaction-amount { grid-column: 3 / -1; }
+  .expense-group-heading { align-items: stretch; flex-direction: column; }
+  .expense-group-search { width: 100%; }
+  .expense-group-row { grid-template-columns: 82px minmax(0, 1fr) auto; gap: 10px; }
   .category-report-body { grid-template-columns: 170px minmax(0, 1fr); gap: 18px; padding-inline: 0; }
   .donut-chart { width: 160px; }
   .donut-chart > div { width: 96px; }
@@ -561,6 +584,8 @@ input:focus, select:focus { border-color: #f36a21; background: #fffdfa; box-shad
   .month-multiselect { width: 100%; }
   .month-options { right: auto; left: 0; width: 100%; }
   .report-metrics { grid-template-columns: 1fr; }
+  .expense-group-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .expense-group-row time { grid-column: 1 / -1; }
   .category-report-body { grid-template-columns: 1fr; justify-items: center; }
   .category-legend { width: 100%; }
   .expense-ranking-row { grid-template-columns: 30px minmax(0, 1fr); }

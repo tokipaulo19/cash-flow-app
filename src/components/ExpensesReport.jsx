@@ -98,6 +98,83 @@ function MonthFilter({ months, selectedMonths, onChange }) {
   )
 }
 
+function ExpenseGroupExplorer({ expenses }) {
+  const [query, setQuery] = useState('')
+  const normalisedQuery = query.trim().toLowerCase()
+
+  const suggestions = useMemo(() => {
+    const groups = new Set()
+    expenses.forEach((expense) => {
+      groups.add(categoryNameFor(expense))
+      groups.add(subcategoryNameFor(expense))
+    })
+    return [...groups].sort((a, b) => a.localeCompare(b))
+  }, [expenses])
+
+  const matches = useMemo(() => {
+    if (!normalisedQuery) return []
+    return expenses
+      .filter((expense) => categoryNameFor(expense).toLowerCase().includes(normalisedQuery)
+        || subcategoryNameFor(expense).toLowerCase().includes(normalisedQuery))
+      .sort((a, b) => b.occurrenceDate.localeCompare(a.occurrenceDate) || b.amount - a.amount)
+  }, [expenses, normalisedQuery])
+
+  const total = matches.reduce((sum, expense) => sum + expense.amount, 0)
+
+  return (
+    <section className="panel expense-group-explorer">
+      <div className="panel-heading expense-group-heading">
+        <div>
+          <span className="eyebrow">Expense lookup</span>
+          <h2>Explore a category or subcategory</h2>
+          <p>Search within the months selected above to see every expense in that group.</p>
+        </div>
+        <label className="expense-group-search">
+          <span>Category or subcategory</span>
+          <div>
+            <input
+              type="search"
+              list="expense-group-suggestions"
+              value={query}
+              placeholder="e.g. Housing or Groceries"
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            {query && <button type="button" aria-label="Clear expense group search" onClick={() => setQuery('')}>×</button>}
+          </div>
+          <datalist id="expense-group-suggestions">
+            {suggestions.map((group) => <option value={group} key={group} />)}
+          </datalist>
+        </label>
+      </div>
+
+      {!normalisedQuery ? (
+        <p className="expense-group-prompt">Start typing or select a category or subcategory to view its expenses.</p>
+      ) : matches.length ? (
+        <>
+          <div className="expense-group-summary">
+            <span><strong>{matches.length}</strong> expense occurrence{matches.length === 1 ? '' : 's'}</span>
+            <span>Total <strong>{money(total)}</strong></span>
+          </div>
+          <div className="expense-group-list">
+            {matches.map((expense, index) => (
+              <div className="expense-group-row" key={`${expense.id || expense.name}-${expense.occurrenceDate}-${index}`}>
+                <time dateTime={expense.occurrenceDate}>{shortDate(expense.occurrenceDate)}</time>
+                <div>
+                  <strong>{expense.name}</strong>
+                  <span>{categoryNameFor(expense)} › {subcategoryNameFor(expense)} · {fallbackCategories[expense.sourceSection] || 'Expense'}{expense.mandatory ? ' · Mandatory' : ''}</span>
+                </div>
+                <strong>{money(expense.amount)}</strong>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p className="expense-group-prompt">No expenses in the selected months match “{query.trim()}”.</p>
+      )}
+    </section>
+  )
+}
+
 function CategoryBudgetPanel({ transactions, expenses, selectedMonths, categoryBudgets, onSetCategoryBudget }) {
   const [editing, setEditing] = useState(false)
 
@@ -320,6 +397,8 @@ function ExpensesReport({ forecast, transactions, categoryBudgets = {}, onSetCat
         <ReportMetric label="Largest expense" value={report.topItem.name} note={`${money(report.topItem.amount)} across ${report.topItem.occurrences} occurrence${report.topItem.occurrences === 1 ? '' : 's'}`} />
         <ReportMetric label="Biggest spending day" value={money(report.largestDay.amount)} note={shortDate(report.largestDay.date)} tone="negative" />
       </section>
+
+      <ExpenseGroupExplorer expenses={expenses} />
 
       <CategoryBudgetPanel transactions={transactions} expenses={expenses} selectedMonths={filteredMonths} categoryBudgets={categoryBudgets} onSetCategoryBudget={onSetCategoryBudget} />
 
