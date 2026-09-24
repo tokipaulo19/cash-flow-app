@@ -63,6 +63,37 @@ function buildExpenseOccurrences(transactions, days) {
     }))
 }
 
+function csvCell(value) {
+  const text = String(value ?? '')
+  const safeText = /^[\s]*[=+\-@]/.test(text) ? `'${text}` : text
+  return `"${safeText.replaceAll('"', '""')}"`
+}
+
+function downloadExpenseCsv(expenses, query) {
+  const rows = [
+    ['Date', 'Expense', 'Category', 'Subcategory', 'Type', 'Mandatory', 'Amount (PHP)'],
+    ...expenses.map((expense) => [
+      expense.occurrenceDate,
+      expense.name,
+      categoryNameFor(expense),
+      subcategoryNameFor(expense),
+      fallbackCategories[expense.sourceSection] || 'Expense',
+      expense.mandatory ? 'Yes' : 'No',
+      expense.amount,
+    ]),
+  ]
+  const csv = `\uFEFF${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`
+  const slug = query.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'group'
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `cash-flow-expenses-${slug}.csv`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 function MonthFilter({ months, selectedMonths, onChange }) {
   const allSelected = selectedMonths.length === months.length
   const summary = allSelected
@@ -154,6 +185,7 @@ function ExpenseGroupExplorer({ expenses }) {
           <div className="expense-group-summary">
             <span><strong>{matches.length}</strong> expense occurrence{matches.length === 1 ? '' : 's'}</span>
             <span>Total <strong>{money(total)}</strong></span>
+            <button className="button-secondary button-small" type="button" onClick={() => downloadExpenseCsv(matches, query)}>Export CSV</button>
           </div>
           <div className="expense-group-list">
             {matches.map((expense, index) => (

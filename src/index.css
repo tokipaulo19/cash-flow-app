@@ -402,6 +402,7 @@ input:focus, select:focus { border-color: #f36a21; background: #fffdfa; box-shad
 .expense-group-prompt { margin: 4px 0 0; padding: 23px; border: 1px dashed #bdbab4; border-radius: 11px; color: #686869; background: #ece9e3; font-size: 11px; text-align: center; }
 .expense-group-summary { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 4px; padding: 12px 15px; border-radius: 9px; color: #686869; background: #ece9e3; font-size: 11px; }
 .expense-group-summary strong { color: #18191b; }
+.expense-group-summary button { margin-left: auto; white-space: nowrap; }
 .expense-group-list { display: grid; max-height: 520px; overflow: auto; }
 .expense-group-row { display: grid; grid-template-columns: 100px minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 14px 5px; border-top: 1px solid #dcd9d3; }
 .expense-group-row time { color: #686869; font-size: 10px; font-weight: 700; }
@@ -562,6 +563,7 @@ input:focus, select:focus { border-color: #f36a21; background: #fffdfa; box-shad
   .recent-transaction-amount { grid-column: 3 / -1; }
   .expense-group-heading { align-items: stretch; flex-direction: column; }
   .expense-group-search { width: 100%; }
+  .expense-group-summary { flex-wrap: wrap; }
   .expense-group-row { grid-template-columns: 82px minmax(0, 1fr) auto; gap: 10px; }
   .category-report-body { grid-template-columns: 170px minmax(0, 1fr); gap: 18px; padding-inline: 0; }
   .donut-chart { width: 160px; }
