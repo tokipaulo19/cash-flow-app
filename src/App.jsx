@@ -4,7 +4,7 @@ import ExpensesReport from './components/ExpensesReport'
 import GithubSyncPanel from './components/GithubSyncPanel'
 import WeeklyForecast from './components/WeeklyForecast'
 import StatusBadge from './components/StatusBadge'
-import { financeData } from './data/financeData'
+import { financeData, todayKey } from './data/financeData'
 import { generateDailyForecast, nextExpectedOccurrence, pendingOccurrenceCount, previousScheduledOccurrence, recurringEndDate, remainingBillBalance, toDateKey } from './engine/forecastEngine'
 import { DEFAULT_GITHUB_SYNC, loadGithubData, saveGithubData } from './services/githubSync'
 import { money, shortDate } from './utils/formatters'
@@ -107,7 +107,7 @@ function syncTime() {
   return new Intl.DateTimeFormat('en-PH', { hour: 'numeric', minute: '2-digit' }).format(new Date())
 }
 
-function emptyForm(section = 'recurringIncome', startDate = '') {
+function emptyForm(section = 'recurringIncome') {
   return {
     section,
     name: '',
@@ -121,7 +121,7 @@ function emptyForm(section = 'recurringIncome', startDate = '') {
     totalAmount: '',
     amountPaid: '0',
     remainingAmount: '',
-    startDate,
+    startDate: todayKey(),
     frequency: section === 'recurringIncome' ? 'Weekly' : section === 'recurringBills' ? 'Monthly' : 'One-Off',
     active: true,
     mandatory: section !== 'recurringIncome' && section !== 'oneOffIncome' && section !== 'variableExpenses',
@@ -314,7 +314,10 @@ function ItemForm({ form, setForm, editing, onSubmit, onCancel }) {
 
 function ItemGroup({ section, items, sortBy, onSortChange, onEdit, onDelete, onToggle, onReceiveIncome, onUndoIncome, onPayBill }) {
   const [incomeDraft, setIncomeDraft] = useState(null)
+  const [page, setPage] = useState(0)
+  const listRef = useRef(null)
   const recurring = section.key === 'recurringIncome' || section.key === 'recurringBills'
+  const paginate = section.key !== 'recurringIncome' && section.key !== 'oneOffIncome'
   const dateLabel = recurring ? 'Next date' : 'Due date'
   const sortedItems = useMemo(() => [...items].sort((first, second) => {
     const firstDate = recurring ? nextExpectedOccurrence(first) : null
@@ -333,6 +336,14 @@ function ItemGroup({ section, items, sortBy, onSortChange, onEdit, onDelete, onT
       default: return firstDateKey.localeCompare(secondDateKey) || nameOrder
     }
   }), [items, recurring, sortBy])
+  const pageCount = Math.max(1, Math.ceil(sortedItems.length / 30))
+  const currentPage = Math.min(page, pageCount - 1)
+  const visibleItems = paginate ? sortedItems.slice(currentPage * 30, (currentPage + 1) * 30) : sortedItems
+
+  const changePage = (nextPage) => {
+    setPage(nextPage)
+    requestAnimationFrame(() => listRef.current?.scrollIntoView({ block: 'start' }))
+  }
 
   const openIncomePayment = (item, expectedDate) => {
     setIncomeDraft({ itemId: item.id, expectedDate: toDateKey(expectedDate), amount: String(item.amount) })
@@ -355,7 +366,7 @@ function ItemGroup({ section, items, sortBy, onSortChange, onEdit, onDelete, onT
         <div className="item-group-tools">
           <label>
             <span className="visually-hidden">Sort {section.label}</span>
-            <select value={sortBy} onChange={(event) => onSortChange(event.target.value)} aria-label={`Sort ${section.label}`}>
+            <select value={sortBy} onChange={(event) => { setPage(0); onSortChange(event.target.value) }} aria-label={`Sort ${section.label}`}>
               <option value="dateAsc">{dateLabel}: soonest</option>
               <option value="dateDesc">{dateLabel}: latest</option>
               <option value="amountDesc">Amount: high to low</option>
@@ -369,8 +380,8 @@ function ItemGroup({ section, items, sortBy, onSortChange, onEdit, onDelete, onT
         </div>
       </div>
       {items.length ? (
-        <div className="item-list">
-          {sortedItems.map((item) => {
+        <div className="item-list" ref={listRef}>
+          {visibleItems.map((item) => {
             const paused = recurring ? item.active === false : item.status === 'Paid'
             const paymentTracked = item.type === 'income' || section.key === 'recurringBills'
             const nextPayment = paymentTracked && item.status !== 'Paid' ? nextExpectedOccurrence(item) : null
@@ -441,6 +452,16 @@ function ItemGroup({ section, items, sortBy, onSortChange, onEdit, onDelete, onT
           })}
         </div>
       ) : <div className="empty-state"><span>＋</span><p>No {section.label.toLowerCase()} yet.</p></div>}
+      {paginate && pageCount > 1 && (
+        <nav className="item-pagination" aria-label={`${section.label} pages`}>
+          <span aria-live="polite">Showing {currentPage * 30 + 1}-{Math.min((currentPage + 1) * 30, items.length)} of {items.length}</span>
+          <div>
+            <button className="button-secondary" type="button" disabled={currentPage === 0} onClick={() => changePage(currentPage - 1)}>Previous</button>
+            <span>Page {currentPage + 1} of {pageCount}</span>
+            <button className="button-secondary" type="button" disabled={currentPage === pageCount - 1} onClick={() => changePage(currentPage + 1)}>Next</button>
+          </div>
+        </nav>
+      )}
     </div>
   )
 }
@@ -465,7 +486,7 @@ function ItemCollection({ title, description, sectionKeys, activeKey, onActiveCh
         ))}
       </div>
       <div role="tabpanel" aria-label={activeSection.label}>
-        <ItemGroup section={activeSection} items={data[activeSection.key]} sortBy={itemSorts[activeSection.key] || 'dateAsc'} onSortChange={(sortBy) => onSortChange(activeSection.key, sortBy)} onEdit={onEdit} onDelete={onDelete} onToggle={onToggle} onReceiveIncome={onReceiveIncome} onUndoIncome={onUndoIncome} onPayBill={onPayBill} />
+        <ItemGroup key={activeSection.key} section={activeSection} items={data[activeSection.key]} sortBy={itemSorts[activeSection.key] || 'dateAsc'} onSortChange={(sortBy) => onSortChange(activeSection.key, sortBy)} onEdit={onEdit} onDelete={onDelete} onToggle={onToggle} onReceiveIncome={onReceiveIncome} onUndoIncome={onUndoIncome} onPayBill={onPayBill} />
       </div>
     </section>
   )
@@ -475,7 +496,7 @@ function App() {
   const [data, setData] = useState(loadSavedData)
   const [view, setView] = useState('overview')
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState(() => emptyForm('recurringIncome', data.settings.forecastStartDate))
+  const [form, setForm] = useState(() => emptyForm('recurringIncome'))
   const [syncConfig, setSyncConfig] = useState(loadSyncConfig)
   const [syncStatus, setSyncStatus] = useState(syncConfig ? 'connecting' : 'disconnected')
   const [syncMessage, setSyncMessage] = useState('')
@@ -597,7 +618,7 @@ function App() {
 
   const openNewItem = (section = 'recurringIncome') => {
     setEditing(null)
-    setForm(emptyForm(section, data.settings.forecastStartDate))
+    setForm(emptyForm(section))
     setView('items')
     requestAnimationFrame(() => document.querySelector('.item-form-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
@@ -686,14 +707,14 @@ function App() {
       }
     })
     setEditing(null)
-    setForm(emptyForm(form.section, data.settings.forecastStartDate))
+    setForm(emptyForm(form.section))
     if (form.section === 'recurringIncome' || form.section === 'oneOffIncome') setIncomeListTab(form.section)
     else setExpenseListTab(form.section)
   }
 
   const editItem = (section, item) => {
     setEditing({ id: item.id, section })
-    setForm({ ...emptyForm(section, data.settings.forecastStartDate), ...item, section, amount: String(item.amount) })
+    setForm({ ...emptyForm(section), ...item, section, amount: String(item.amount) })
     requestAnimationFrame(() => document.querySelector('.item-form-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
@@ -851,7 +872,7 @@ function App() {
     const freshData = cloneDefaultData()
     setData(freshData)
     setEditing(null)
-    setForm(emptyForm('recurringIncome', freshData.settings.forecastStartDate))
+    setForm(emptyForm('recurringIncome'))
   }
 
   const exportData = () => {
@@ -872,7 +893,7 @@ function App() {
     try {
       const normalized = normalizeData(JSON.parse(await file.text()))
       setData(normalized)
-      setForm(emptyForm('recurringIncome', normalized.settings.forecastStartDate))
+      setForm(emptyForm('recurringIncome'))
       setEditing(null)
       setView('overview')
     } catch {
@@ -1011,7 +1032,7 @@ function App() {
           <div className="items-stack">
             <SettingsPanel data={data} setData={setData} onExport={exportData} onImport={() => importInputRef.current?.click()} />
             <GithubSyncPanel config={syncConfig} status={syncStatus} message={syncMessage} lastSyncedAt={lastSyncedAt} onConnect={connectGithub} onPull={pullGithubData} onPush={pushGithubData} onDisconnect={disconnectGithub} />
-            <ItemForm form={form} setForm={setForm} editing={editing} onSubmit={submitItem} onCancel={() => { setEditing(null); setForm(emptyForm(form.section, data.settings.forecastStartDate)) }} />
+            <ItemForm form={form} setForm={setForm} editing={editing} onSubmit={submitItem} onCancel={() => { setEditing(null); setForm(emptyForm(form.section)) }} />
             <div className="item-collections-grid">
               <ItemCollection title="Income" description="Switch between repeating and single income payments." sectionKeys={['recurringIncome', 'oneOffIncome']} activeKey={incomeListTab} onActiveChange={setIncomeListTab} data={data} itemSorts={itemSorts} onSortChange={(section, sortBy) => setItemSorts((current) => ({ ...current, [section]: sortBy }))} onEdit={editItem} onDelete={deleteItem} onToggle={toggleItem} onReceiveIncome={receiveIncome} onUndoIncome={undoIncome} onPayBill={payBill} />
               <ItemCollection title="Expenses" description="Review recurring, variable and one-off expenses separately." sectionKeys={['recurringBills', 'variableExpenses', 'oneOffBills']} activeKey={expenseListTab} onActiveChange={setExpenseListTab} data={data} itemSorts={itemSorts} onSortChange={(section, sortBy) => setItemSorts((current) => ({ ...current, [section]: sortBy }))} onEdit={editItem} onDelete={deleteItem} onToggle={toggleItem} onReceiveIncome={receiveIncome} onUndoIncome={undoIncome} onPayBill={payBill} />

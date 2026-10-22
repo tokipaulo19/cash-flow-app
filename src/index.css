@@ -277,6 +277,10 @@ input:focus, select:focus { border-color: #f36a21; background: #fffdfa; box-shad
 .item-group-tools select { width: auto; min-width: 145px; height: 31px; padding: 0 28px 0 9px; border-radius: 8px; font-size: 9px; font-weight: 750; }
 .count-pill { min-width: 29px; height: 29px; }
 .item-list { display: grid; }
+.item-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #dcd9d3; color: #686869; font-size: 11px; }
+.item-pagination > div { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.item-pagination button { min-height: 44px; padding: 8px 12px; font-size: 11px; }
+.item-pagination button:focus-visible { outline: 2px solid #f36a21; outline-offset: 2px; }
 .item-row { display: grid; grid-template-columns: 35px minmax(0, 1fr) auto auto; align-items: center; gap: 11px; padding: 15px 0; border-bottom: 1px solid #dcd9d3; }
 .item-row:last-child { border-bottom: 0; padding-bottom: 0; }
 .item-paused { opacity: .55; }
