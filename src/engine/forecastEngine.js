@@ -111,6 +111,8 @@ export function occursOnDate(item, date) {
       return difference % 7 === 0
     case 'Fortnightly':
       return difference % 14 === 0
+    case 'Every 4 weeks':
+      return difference % 28 === 0
     case 'Monthly':
       return isMonthlyOccurrence(date, anchor, 1)
     case 'Quarterly':

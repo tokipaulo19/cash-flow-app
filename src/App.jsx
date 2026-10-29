@@ -200,8 +200,8 @@ function ItemForm({ form, setForm, editing, onSubmit, onCancel }) {
   const definition = sections.find((section) => section.key === form.section)
   const recurring = form.section === 'recurringIncome' || form.section === 'recurringBills'
   const frequencyOptions = form.section === 'recurringIncome'
-    ? ['Weekly', 'Fortnightly', 'Monthly']
-    : ['Weekly', 'Fortnightly', 'Monthly', 'Quarterly', 'Annual']
+    ? ['Weekly', 'Fortnightly', 'Every 4 weeks', 'Monthly']
+    : ['Weekly', 'Fortnightly', 'Every 4 weeks', 'Monthly', 'Quarterly', 'Annual']
   const durationEnd = form.section === 'recurringBills'
     ? recurringEndDate({ ...form, durationMonths: Number(form.durationMonths) })
     : null

@@ -73,3 +73,16 @@ test('tracked recurring bills still stop at their remaining balance', () => {
   assert.deepEqual(forecast.filter((day) => day.expenses > 0).map((day) => day.expenses), [100, 50])
   assert.equal(forecast.at(-1).balance, -150)
 })
+
+test('every 4 weeks repeats on a 28-day cycle for income and bills', () => {
+  const income = { ...trackedIncome, frequency: 'Every 4 weeks', trackBalance: false, paidThroughDate: '' }
+  const bill = { ...income, id: 'four-week-bill', type: 'expense', amount: 40 }
+  const forecast = generateDailyForecast({ transactions: [income, bill], startDate: '2026-10-01', days: 85 })
+  const dates = forecast.filter((day) => day.events.length).map((day) => day.date)
+
+  assert.deepEqual(dates, ['2026-10-01', '2026-10-29', '2026-11-26', '2026-12-24'])
+  assert.deepEqual(forecast.filter((day) => day.events.length).map((day) => [day.income, day.expenses]), [
+    [100, 40], [100, 40], [100, 40], [100, 40],
+  ])
+  assert.equal(toDateKey(nextExpectedOccurrence({ ...income, paidThroughDate: '2026-10-29' })), '2026-11-26')
+})
