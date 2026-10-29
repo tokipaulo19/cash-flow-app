@@ -67,7 +67,7 @@ export function recurringEndDate(item) {
   return addDays(addMonthsClamped(anchor, durationMonths), -1)
 }
 
-export function remainingBillBalance(item) {
+export function remainingTrackedBalance(item) {
   if (!item?.trackBalance) return null
   const total = Math.max(0, Number(item.totalAmount) || 0)
   const paid = Math.max(0, Number(item.amountPaid) || 0)
@@ -75,9 +75,25 @@ export function remainingBillBalance(item) {
   return Math.max(0, Number.isFinite(savedRemaining) ? savedRemaining : total - paid)
 }
 
+export function trackedBalanceAfterPayment(item, paymentAmount) {
+  const total = Math.max(0, Number(item.totalAmount) || 0)
+  const previousAmountPaid = Math.max(0, Number(item.amountPaid) || 0)
+  const amountPaid = Math.min(total, previousAmountPaid + Math.max(0, Number(paymentAmount) || 0))
+  return { previousAmountPaid, amountPaid, remainingAmount: Math.max(0, total - amountPaid) }
+}
+
+export function trackedBalanceAfterUndo(item, previousAmountPaid, paymentAmount) {
+  const total = Math.max(0, Number(item.totalAmount) || 0)
+  const restored = previousAmountPaid != null
+    ? Number(previousAmountPaid)
+    : (Number(item.amountPaid) || 0) - (Number(paymentAmount) || 0)
+  const amountPaid = Math.min(total, Math.max(0, restored || 0))
+  return { amountPaid, remainingAmount: Math.max(0, total - amountPaid) }
+}
+
 export function occursOnDate(item, date) {
   if (!item || item.active === false || (item.frequency === 'One-Off' && item.status === 'Paid')) return false
-  if (item.type === 'expense' && item.trackBalance && remainingBillBalance(item) <= 0) return false
+  if (item.trackBalance && remainingTrackedBalance(item) <= 0) return false
 
   const anchor = parseLocalDate(item.startDate)
   if (!anchor || date < anchor) return false
@@ -127,8 +143,8 @@ function occurrenceNumber(item, date, startAfterPaidThrough) {
 
 export function occurrenceAmount(item, date) {
   const amount = Math.max(0, Number(item?.amount) || 0)
-  if (!item?.trackBalance || item.type !== 'expense') return amount
-  const remaining = remainingBillBalance(item)
+  if (!item?.trackBalance) return amount
+  const remaining = remainingTrackedBalance(item)
   const number = occurrenceNumber(item, date, true)
   return number ? Math.min(amount, Math.max(0, remaining - amount * (number - 1))) : 0
 }
@@ -144,7 +160,7 @@ export function scheduledOccurrenceAmount(item, date) {
 export function nextExpectedOccurrence(item) {
   const anchor = parseLocalDate(item?.startDate)
   if (!anchor) return null
-  if (item.type === 'expense' && item.trackBalance && remainingBillBalance(item) <= 0) return null
+  if (item.trackBalance && remainingTrackedBalance(item) <= 0) return null
 
   const paidThrough = parseLocalDate(item.paidThroughDate)
   const scheduleItem = { ...item, active: true, status: 'Unpaid', paidThroughDate: '' }
@@ -182,8 +198,8 @@ export function pendingOccurrenceCount(item, throughDate = new Date()) {
   const scheduleItem = { ...item, active: true, status: 'Unpaid', paidThroughDate: '' }
   let occurrence = nextExpectedOccurrence(item)
   let count = 0
-  const paymentLimit = item.type === 'expense' && item.trackBalance
-    ? Math.ceil(remainingBillBalance(item) / Math.max(1, Number(item.amount) || 0))
+  const paymentLimit = item.trackBalance
+    ? Math.ceil(remainingTrackedBalance(item) / Math.max(1, Number(item.amount) || 0))
     : 1000
 
   while (occurrence && occurrence <= end && count < paymentLimit) {

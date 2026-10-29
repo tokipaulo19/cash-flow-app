@@ -5,7 +5,7 @@ import GithubSyncPanel from './components/GithubSyncPanel'
 import WeeklyForecast from './components/WeeklyForecast'
 import StatusBadge from './components/StatusBadge'
 import { financeData, todayKey } from './data/financeData'
-import { generateDailyForecast, nextExpectedOccurrence, pendingOccurrenceCount, previousScheduledOccurrence, recurringEndDate, remainingBillBalance, toDateKey } from './engine/forecastEngine'
+import { generateDailyForecast, nextExpectedOccurrence, pendingOccurrenceCount, previousScheduledOccurrence, recurringEndDate, remainingTrackedBalance, toDateKey, trackedBalanceAfterPayment, trackedBalanceAfterUndo } from './engine/forecastEngine'
 import { DEFAULT_GITHUB_SYNC, loadGithubData, saveGithubData } from './services/githubSync'
 import { money, shortDate } from './utils/formatters'
 
@@ -266,23 +266,25 @@ function ItemForm({ form, setForm, editing, onSubmit, onCancel }) {
                 </>
               )}
             </div>
-            <div className="balance-control field-wide">
-              <label className="toggle"><input type="checkbox" checked={form.trackBalance} onChange={(event) => update('trackBalance', event.target.checked)} /><span />Track a total balance</label>
-              {form.trackBalance && (
-                <div className="balance-fields">
-                  <label>
-                    <span>Total amount to pay</span>
-                    <div className="currency-input"><b>₱</b><input required type="number" min="0.01" step="0.01" value={form.totalAmount} onChange={(event) => update('totalAmount', event.target.value)} /></div>
-                  </label>
-                  <label>
-                    <span>Amount already paid</span>
-                    <div className="currency-input"><b>₱</b><input required type="number" min="0" max={Number(form.totalAmount) || undefined} step="0.01" value={form.amountPaid} onChange={(event) => update('amountPaid', event.target.value)} /></div>
-                  </label>
-                  <div className="balance-preview"><span>Amount remaining</span><strong>{money(formRemaining)}</strong></div>
-                </div>
-              )}
-            </div>
           </>
+        )}
+        {recurring && (
+          <div className="balance-control field-wide">
+            <label className="toggle"><input type="checkbox" checked={form.trackBalance} onChange={(event) => update('trackBalance', event.target.checked)} /><span />Track a total balance</label>
+            {form.trackBalance && (
+              <div className="balance-fields">
+                <label>
+                  <span>Total amount to {form.section === 'recurringIncome' ? 'receive' : 'pay'}</span>
+                  <div className="currency-input"><b>₱</b><input required type="number" min="0.01" step="0.01" value={form.totalAmount} onChange={(event) => update('totalAmount', event.target.value)} /></div>
+                </label>
+                <label>
+                  <span>Amount already {form.section === 'recurringIncome' ? 'received' : 'paid'}</span>
+                  <div className="currency-input"><b>₱</b><input required type="number" min="0" max={Number(form.totalAmount) || undefined} step="0.01" value={form.amountPaid} onChange={(event) => update('amountPaid', event.target.value)} /></div>
+                </label>
+                <div className="balance-preview"><span>Amount remaining</span><strong>{money(formRemaining)}</strong></div>
+              </div>
+            )}
+          </div>
         )}
         <label>
           <span>Category <em>optional</em></span>
@@ -346,7 +348,8 @@ function ItemGroup({ section, items, sortBy, onSortChange, onEdit, onDelete, onT
   }
 
   const openIncomePayment = (item, expectedDate) => {
-    setIncomeDraft({ itemId: item.id, expectedDate: toDateKey(expectedDate), amount: String(item.amount) })
+    const amount = item.trackBalance ? Math.min(Number(item.amount) || 0, remainingTrackedBalance(item)) : item.amount
+    setIncomeDraft({ itemId: item.id, expectedDate: toDateKey(expectedDate), amount: String(amount) })
   }
 
   const confirmIncomePayment = (item) => {
@@ -387,7 +390,7 @@ function ItemGroup({ section, items, sortBy, onSortChange, onEdit, onDelete, onT
             const nextPayment = paymentTracked && item.status !== 'Paid' ? nextExpectedOccurrence(item) : null
             const pendingPayments = paymentTracked ? pendingOccurrenceCount(item) : 0
             const billEndDate = section.key === 'recurringBills' ? recurringEndDate(item) : null
-            const remaining = section.key === 'recurringBills' ? remainingBillBalance(item) : null
+            const remaining = item.trackBalance && recurring ? remainingTrackedBalance(item) : null
             const paidOff = item.trackBalance && remaining <= 0
             const paidAmount = item.trackBalance ? Math.max(0, Number(item.totalAmount) - remaining) : 0
             const paidPercent = item.trackBalance && Number(item.totalAmount) > 0 ? Math.min(100, (paidAmount / Number(item.totalAmount)) * 100) : 0
@@ -402,7 +405,7 @@ function ItemGroup({ section, items, sortBy, onSortChange, onEdit, onDelete, onT
                     <strong>{item.name}</strong>
                     {item.mandatory && <span className="mini-tag">Mandatory</span>}
                     {paused && <span className="mini-tag tag-muted">{recurring ? 'Paused' : 'Paid'}</span>}
-                    {paidOff && <span className="mini-tag">Paid off</span>}
+                    {paidOff && <span className="mini-tag">{item.type === 'income' ? 'Fully received' : 'Paid off'}</span>}
                   </div>
                   <span>{item.frequency} · {shortDate(item.startDate)}{item.category ? ` · ${item.category}` : ''}{item.subcategory ? ` › ${item.subcategory}` : ''}{section.key === 'recurringBills' ? billEndDate ? ` · Ends ${shortDate(toDateKey(billEndDate))}` : ' · No end date' : ''}</span>
                   {nextPayment && (
@@ -429,10 +432,10 @@ function ItemGroup({ section, items, sortBy, onSortChange, onEdit, onDelete, onT
                       <button type="button" onClick={() => onUndoIncome(section.key, item)}>Undo last payment</button>
                     </div>
                   )}
-                  {section.key === 'recurringBills' && item.trackBalance && (
-                    <div className="bill-balance">
-                      <div><span>{money(paidAmount)} paid</span><strong>{money(remaining)} remaining</strong></div>
-                      <div className="bill-balance-track"><i style={{ width: `${paidPercent}%` }} /></div>
+                  {recurring && item.trackBalance && (
+                    <div className="tracked-balance">
+                      <div><span>{money(paidAmount)} {item.type === 'income' ? 'received' : 'paid'}</span><strong>{money(remaining)} remaining</strong></div>
+                      <div className="tracked-balance-track"><i style={{ width: `${paidPercent}%` }} /></div>
                     </div>
                   )}
                   {section.key === 'oneOffIncome' && item.status === 'Paid' && item.actualAmount != null && (
@@ -640,6 +643,11 @@ function App() {
     if (form.section === 'recurringBills') {
       item.endless = Boolean(form.endless)
       item.durationMonths = item.endless ? 0 : Math.max(1, Math.floor(Number(form.durationMonths) || 1))
+    } else {
+      delete item.endless
+      delete item.durationMonths
+    }
+    if (recurring) {
       item.trackBalance = Boolean(form.trackBalance)
       if (item.trackBalance) {
         item.totalAmount = Math.max(0, Number(form.totalAmount) || 0)
@@ -651,13 +659,11 @@ function App() {
         delete item.remainingAmount
       }
     } else {
-      delete item.endless
-      delete item.durationMonths
       delete item.trackBalance
       delete item.totalAmount
       delete item.amountPaid
       delete item.remainingAmount
-      if (form.section !== 'recurringIncome') delete item.paidThroughDate
+      delete item.paidThroughDate
     }
 
     setData((current) => {
@@ -772,6 +778,8 @@ function App() {
       const currentItem = current[section].find((existing) => existing.id === item.id)
       const currentExpectedDate = nextExpectedOccurrence(currentItem)
       if (!currentItem || !currentExpectedDate || toDateKey(currentExpectedDate) !== expectedDateKey) return current
+      const trackedIncome = section === 'recurringIncome' && currentItem.trackBalance
+      const trackedBalance = trackedIncome ? trackedBalanceAfterPayment(currentItem, actualAmount) : null
 
       return {
         ...current,
@@ -783,7 +791,15 @@ function App() {
                 ...existing,
                 paidThroughDate: expectedDateKey,
                 lastReceivedAmount: actualAmount,
-                paymentHistory: [...(existing.paymentHistory || []), { scheduledDate: expectedDateKey, previousPaidThroughDate: existing.paidThroughDate || '', receivedDate: toDateKey(new Date()), recordedAt: new Date().toISOString(), amount: actualAmount }],
+                paymentHistory: [...(existing.paymentHistory || []), {
+                  scheduledDate: expectedDateKey,
+                  previousPaidThroughDate: existing.paidThroughDate || '',
+                  receivedDate: toDateKey(new Date()),
+                  recordedAt: new Date().toISOString(),
+                  amount: actualAmount,
+                  ...(trackedBalance ? { previousAmountPaid: trackedBalance.previousAmountPaid } : {}),
+                }],
+                ...(trackedBalance ? { amountPaid: trackedBalance.amountPaid, remainingAmount: trackedBalance.remainingAmount } : {}),
               }
           : existing),
       }
@@ -811,6 +827,8 @@ function App() {
         ?? remainingHistory.at(-1)?.scheduledDate
         ?? (previousOccurrence ? toDateKey(previousOccurrence) : '')
       const currentAmount = Number(currentLatest?.amount ?? currentItem.lastReceivedAmount ?? currentItem.amount) || 0
+      const trackedIncome = section === 'recurringIncome' && currentItem.trackBalance
+      const trackedBalance = trackedIncome ? trackedBalanceAfterUndo(currentItem, currentLatest?.previousAmountPaid, currentAmount) : null
 
       return {
         ...current,
@@ -821,6 +839,7 @@ function App() {
               paidThroughDate: previousPaidThroughDate,
               paymentHistory: remainingHistory,
               lastReceivedAmount: remainingHistory.at(-1)?.amount ?? null,
+              ...(trackedBalance || {}),
             }
           : existing),
       }
@@ -832,7 +851,7 @@ function App() {
     if (!expectedDate || item.active === false) return
 
     const expectedDateKey = toDateKey(expectedDate)
-    const remaining = remainingBillBalance(item)
+    const remaining = remainingTrackedBalance(item)
     const paymentAmount = item.trackBalance ? Math.min(Number(item.amount) || 0, remaining) : Number(item.amount) || 0
     if (paymentAmount <= 0) return
     if (!window.confirm(`Pay the ${shortDate(expectedDateKey)} bill for ${item.name} and deduct ${money(paymentAmount)} from current cash${item.trackBalance ? ' and its remaining balance' : ''}?`)) return
@@ -842,7 +861,7 @@ function App() {
       const currentExpectedDate = nextExpectedOccurrence(currentItem)
       if (!currentItem || !currentExpectedDate || toDateKey(currentExpectedDate) !== expectedDateKey) return current
 
-      const currentRemaining = remainingBillBalance(currentItem)
+      const currentRemaining = remainingTrackedBalance(currentItem)
       const currentPayment = currentItem.trackBalance ? Math.min(Number(currentItem.amount) || 0, currentRemaining) : Number(currentItem.amount) || 0
       if (currentPayment <= 0) return current
 
